@@ -1,0 +1,40 @@
+# Dockerfile to run Verus verification for a verus project
+FROM ubuntu:22.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CARGO_TERM_COLOR=always
+ENV RUSTFLAGS='-D warnings'
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    unzip \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust toolchain 1.88.0
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Verify Rust installation
+RUN rustc --version && cargo --version
+
+# Install latest Verus release
+RUN LATEST_RELEASE=$(curl -s https://api.github.com/repos/verus-lang/verus/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/') && \
+    DOWNLOAD_URL="https://github.com/verus-lang/verus/releases/download/${LATEST_RELEASE}/verus-${LATEST_RELEASE#release/}-x86-linux.zip" && \
+    wget $DOWNLOAD_URL && \
+    unzip verus-${LATEST_RELEASE#release/}-x86-linux.zip && \
+    mv verus-x86-linux /root/.cargo/bin/ && \
+    cd /root/.cargo/bin && \
+    ln -s verus-x86-linux/cargo-verus cargo-verus && \
+    rm -f /verus-*.zip
+
+# Set working directory where the project will be mounted
+WORKDIR /workspace
+
+# Default command to run Verus verification
+CMD ["cargo", "verus", "verify"]
