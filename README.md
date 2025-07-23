@@ -157,13 +157,13 @@ docker run --rm -v /path/to/your/verus-project:/workspace verus-verifier ls -la 
 
 ```bash
 # For your curve25519-dalek project
-docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier
+docker run --rm -v /home/lacra/git_repos/baif/temp/curve25519-dalek/:/workspace -w /workspace/curve25519-dalek verus-verifier
 
 # Interactive debugging
-docker run --rm -it -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier bash
+docker run --rm -it -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace -w /workspace/curve25519-dalek verus-verifier bash
 
 # Custom verification with flags
-docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier cargo verus verify --verbose
+docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace -w /workspace/curve25519-dalek verus-verifier cargo verus verify --verbose
 ```
 
 ## Notes
