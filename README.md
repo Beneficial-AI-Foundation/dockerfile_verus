@@ -33,7 +33,7 @@ Verify specific modules using the `--verify-only-module` option:
 ```bash
 # Verify a specific module
 docker run --rm -v /path/to/your/verus-project:/workspace verus-verifier \
-  /usr/local/bin/verify-verus.sh --verify-only-module backend::serial::u64::field_verus
+  /usr/local/bin/verify-verus.sh --verify-only-module <module>
 ```
 
 ### Projects with Nested Directory Structure
