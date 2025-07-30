@@ -36,5 +36,59 @@ RUN LATEST_RELEASE=$(curl -s https://api.github.com/repos/verus-lang/verus/relea
 # Set working directory where the project will be mounted
 WORKDIR /workspace
 
+# Create a script to handle flexible verification
+COPY <<'EOF' /usr/local/bin/verify-verus.sh
+#!/bin/bash
+
+# Default values
+WORK_DIR="/workspace"
+MODULE=""
+EXTRA_ARGS=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --work-dir)
+            WORK_DIR="$2"
+            shift 2
+            ;;
+        --verify-only-module)
+            MODULE="$2"
+            shift 2
+            ;;
+        *)
+            EXTRA_ARGS="$EXTRA_ARGS $1"
+            shift
+            ;;
+    esac
+done
+
+# Change to the specified working directory
+cd "$WORK_DIR" || { echo "Error: Cannot change to directory $WORK_DIR"; exit 1; }
+
+# Build the cargo verus command
+CMD="cargo verus verify"
+
+# Add module-specific verification if specified
+if [ -n "$MODULE" ]; then
+    CMD="$CMD -- --verify-only-module $MODULE"
+fi
+
+# Add any extra arguments
+if [ -n "$EXTRA_ARGS" ]; then
+    CMD="$CMD $EXTRA_ARGS"
+fi
+
+echo "Running: $CMD"
+echo "Working directory: $(pwd)"
+
+# Execute the command
+eval $CMD
+EOF
+
+# Make the script executable
+RUN chmod +x /usr/local/bin/verify-verus.sh
+
 # Default command to run Verus verification
-CMD ["cargo", "verus", "verify"]
+# Can be overridden with docker run arguments
+CMD ["/usr/local/bin/verify-verus.sh"]

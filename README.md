@@ -14,31 +14,83 @@ docker build -f Dockerfile.verus -t verus-verifier .
 
 ## Running the Container
 
-### Volume Mounting (Recommended)
+### Basic Usage
 
 Mount your project directory directly into the container:
 
 ```bash
-# Mount your project directory to /workspace
+# Mount your project directory to /workspace (default verification)
 docker run --rm -v /path/to/your/verus-project:/workspace verus-verifier
 
 # For interactive development and debugging
 docker run --rm -it -v /path/to/your/verus-project:/workspace verus-verifier bash
 ```
 
+### Module-Specific Verification
+
+Verify specific modules using the `--verify-only-module` option:
+
+```bash
+# Verify a specific module
+docker run --rm -v /path/to/your/verus-project:/workspace verus-verifier \
+  /usr/local/bin/verify-verus.sh --verify-only-module backend::serial::u64::field_verus
+```
+
+### Projects with Nested Directory Structure
+
+For projects like curve25519-dalek where you need to mount the parent directory but run commands from a subdirectory:
+
+```bash
+# Mount parent directory and specify working directory
+docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier \
+  /usr/local/bin/verify-verus.sh --work-dir /workspace/curve25519-dalek
+
+# Combine with module-specific verification
+docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier \
+  /usr/local/bin/verify-verus.sh --work-dir /workspace/curve25519-dalek --verify-only-module backend::serial::u64::field_verus
+```
+
 ### Custom Verification Commands
 
-Run specific Verus commands:
+The container also supports running custom Verus commands directly:
 
 ```bash
 # Run verification with specific flags
 docker run --rm -v /path/to/your/verus-project:/workspace verus-verifier cargo verus verify --verbose
 
-# Run verification on specific modules
-docker run --rm -v /path/to/your/verus-project:/workspace verus-verifier cargo verus verify --crate-type lib
+# Run verification on specific modules (alternative syntax)
+docker run --rm -v /path/to/your/verus-project:/workspace verus-verifier \
+  cargo verus verify -- --verify-only-module your::module::path
 
 # Run other cargo commands
 docker run --rm -v /path/to/your/verus-project:/workspace verus-verifier cargo build
+```
+
+## Script Options
+
+The included `/usr/local/bin/verify-verus.sh` script supports the following options:
+
+- `--work-dir <path>`: Change to specified directory before running verification (default: `/workspace`)
+- `--verify-only-module <module>`: Verify only the specified module
+- Additional arguments are passed through to the cargo verus command
+
+## Example Use Cases
+
+### Standard Project
+```bash
+docker run --rm -v /path/to/project:/workspace verus-verifier
+```
+
+### Nested Project Structure
+```bash
+docker run --rm -v /path/to/parent:/workspace verus-verifier \
+  /usr/local/bin/verify-verus.sh --work-dir /workspace/subproject
+```
+
+### Module-Specific Verification
+```bash
+docker run --rm -v /path/to/project:/workspace verus-verifier \
+  /usr/local/bin/verify-verus.sh --verify-only-module my::module::path
 ```
 
 ## Container Details
