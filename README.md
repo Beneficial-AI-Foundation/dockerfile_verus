@@ -6,11 +6,27 @@ This Docker container provides a complete environment for running Verus verifica
 
 ## Building the Docker Image
 
-Build the Docker image once:
+### Basic Build (Latest Prerelease - Default)
+
+Build the Docker image with the latest Verus prerelease:
 
 ```bash
 docker build -f Dockerfile.verus -t verus-verifier .
 ```
+
+### Build with Latest Stable Release
+
+Build the Docker image with the latest stable Verus release:
+
+```bash
+docker build -f Dockerfile.verus --build-arg VERUS_RELEASE_TYPE=stable -t verus-verifier-stable .
+```
+
+### Build Arguments
+
+- `VERUS_RELEASE_TYPE`: Choose between `prerelease` (default) and `stable`
+  - `prerelease`: Installs the latest prerelease version (includes cutting-edge features)
+  - `stable`: Installs the latest stable release (more tested and reliable)
 
 ## Running the Container
 
@@ -74,6 +90,11 @@ The included `/usr/local/bin/verify-verus.sh` script supports the following opti
 - `--verify-only-module <module>`: Verify only the specified module
 - Additional arguments are passed through to the cargo verus command
 
+The script also displays helpful information before running verification:
+- The command being executed
+- The current working directory
+- The Verus version being used
+
 ## Example Use Cases
 
 ### Standard Project
@@ -97,9 +118,9 @@ docker run --rm -v /path/to/project:/workspace verus-verifier \
 
 - **Base Image**: Ubuntu 22.04
 - **Rust Version**: 1.88.0
-- **Verus**: Latest release (automatically downloaded during build)
+- **Verus**: Latest release (configurable: prerelease by default, or stable via build arg)
 - **Working Directory**: `/workspace` (mount your project here)
-- **Default Command**: `cargo verus verify`
+- **Default Command**: Runs the included `/usr/local/bin/verify-verus.sh` script
 
 ## Environment Variables
 
@@ -114,6 +135,7 @@ The container sets the following environment variables:
 
 1. **Permission Denied**: Ensure Docker daemon is running and you have proper permissions
 2. **Network Issues**: Verify internet connectivity for downloading Rust and Verus
+3. **Verus Download**: The container automatically downloads the latest Verus release during build (prerelease by default, or stable if specified via build arg)
 
 ### Runtime Issues
 
@@ -129,7 +151,7 @@ The container sets the following environment variables:
 docker run --rm verus-verifier rustc --version
 
 # Check Verus version inside container
-docker run --rm verus-verifier cargo verus --version
+docker run --rm verus-verifier /root/.cargo/bin/verus-x86-linux/verus --version
 
 # List your project contents
 docker run --rm -v /path/to/your/verus-project:/workspace verus-verifier ls -la
@@ -138,9 +160,20 @@ docker run --rm -v /path/to/your/verus-project:/workspace verus-verifier ls -la
 docker run --rm -v /path/to/your/verus-project:/workspace verus-verifier ls -la Cargo.toml
 ```
 
+## Repository Structure
+
+This repository contains:
+- `Dockerfile.verus`: The Docker image definition
+- `verify-verus.sh`: A flexible verification script that supports various options
+- `README.md`: This documentation
+
+The verification script is copied into the Docker image during build, providing a consistent and flexible verification environment.
+
 ## Development Workflow
 
-1. **Build the image** once: `docker build -f Dockerfile.verus -t verus-verifier .`
+1. **Build the image** with your preferred Verus version:
+   - Latest prerelease: `docker build -f Dockerfile.verus -t verus-verifier .`
+   - Latest stable: `docker build -f Dockerfile.verus --build-arg VERUS_RELEASE_TYPE=stable -t verus-verifier-stable .`
 2. **Mount your project** and run verification: `docker run --rm -v /path/to/project:/workspace verus-verifier`
 3. **Use interactive mode** for debugging: `docker run --rm -it -v /path/to/project:/workspace verus-verifier bash`
 4. **Iterate rapidly** - changes to your local files are immediately reflected in the container

@@ -1,6 +1,10 @@
 # Dockerfile to run Verus verification for a verus project
 FROM ubuntu:22.04
 
+# Build argument to choose between prerelease and stable
+# Set to "stable" for latest stable release, "prerelease" for latest prerelease (default)
+ARG VERUS_RELEASE_TYPE=prerelease
+
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CARGO_TERM_COLOR=always
@@ -14,6 +18,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     libssl-dev \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust toolchain 1.88.0
@@ -23,11 +28,22 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Verify Rust installation
 RUN rustc --version && cargo --version
 
-# Install latest Verus release
-RUN LATEST_RELEASE=$(curl -s https://api.github.com/repos/verus-lang/verus/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/') && \
-    DOWNLOAD_URL="https://github.com/verus-lang/verus/releases/download/${LATEST_RELEASE}/verus-${LATEST_RELEASE#release/}-x86-linux.zip" && \
-    wget $DOWNLOAD_URL && \
-    unzip verus-${LATEST_RELEASE#release/}-x86-linux.zip && \
+# Install latest Verus release (prerelease or stable based on build arg)
+RUN RELEASE_JSON=$(curl -s https://api.github.com/repos/verus-lang/verus/releases) && \
+    if [ "$VERUS_RELEASE_TYPE" = "stable" ]; then \
+        RELEASE=$(echo "$RELEASE_JSON" | jq -r '.[] | select(.prerelease == false) | .tag_name' | head -n1); \
+        echo "Installing stable release: $RELEASE"; \
+    else \
+        RELEASE=$(echo "$RELEASE_JSON" | jq -r '.[0].tag_name'); \
+        echo "Installing prerelease: $RELEASE"; \
+    fi && \
+    RELEASE_DATA=$(echo "$RELEASE_JSON" | jq -r ".[] | select(.tag_name == \"$RELEASE\")") && \
+    ASSET_NAME=$(echo "$RELEASE_DATA" | jq -r '.assets[] | select(.name | contains("x86-linux.zip")) | .name') && \
+    echo "Asset name: $ASSET_NAME" && \
+    DOWNLOAD_URL=$(echo "$RELEASE_DATA" | jq -r '.assets[] | select(.name | contains("x86-linux.zip")) | .browser_download_url') && \
+    echo "Download URL: $DOWNLOAD_URL" && \
+    wget "$DOWNLOAD_URL" && \
+    unzip "$ASSET_NAME" && \
     mv verus-x86-linux /root/.cargo/bin/ && \
     cd /root/.cargo/bin && \
     ln -s verus-x86-linux/cargo-verus cargo-verus && \
@@ -37,55 +53,13 @@ RUN LATEST_RELEASE=$(curl -s https://api.github.com/repos/verus-lang/verus/relea
 WORKDIR /workspace
 
 # Create a script to handle flexible verification
-RUN echo '#!/bin/bash' > /usr/local/bin/verify-verus.sh && \
-    echo '' >> /usr/local/bin/verify-verus.sh && \
-    echo '# Default values' >> /usr/local/bin/verify-verus.sh && \
-    echo 'WORK_DIR="/workspace"' >> /usr/local/bin/verify-verus.sh && \
-    echo 'MODULE=""' >> /usr/local/bin/verify-verus.sh && \
-    echo 'EXTRA_ARGS=""' >> /usr/local/bin/verify-verus.sh && \
-    echo '' >> /usr/local/bin/verify-verus.sh && \
-    echo '# Parse arguments' >> /usr/local/bin/verify-verus.sh && \
-    echo 'while [[ $# -gt 0 ]]; do' >> /usr/local/bin/verify-verus.sh && \
-    echo '    case $1 in' >> /usr/local/bin/verify-verus.sh && \
-    echo '        --work-dir)' >> /usr/local/bin/verify-verus.sh && \
-    echo '            WORK_DIR="$2"' >> /usr/local/bin/verify-verus.sh && \
-    echo '            shift 2' >> /usr/local/bin/verify-verus.sh && \
-    echo '            ;;' >> /usr/local/bin/verify-verus.sh && \
-    echo '        --verify-only-module)' >> /usr/local/bin/verify-verus.sh && \
-    echo '            MODULE="$2"' >> /usr/local/bin/verify-verus.sh && \
-    echo '            shift 2' >> /usr/local/bin/verify-verus.sh && \
-    echo '            ;;' >> /usr/local/bin/verify-verus.sh && \
-    echo '        *)' >> /usr/local/bin/verify-verus.sh && \
-    echo '            EXTRA_ARGS="$EXTRA_ARGS $1"' >> /usr/local/bin/verify-verus.sh && \
-    echo '            shift' >> /usr/local/bin/verify-verus.sh && \
-    echo '            ;;' >> /usr/local/bin/verify-verus.sh && \
-    echo '    esac' >> /usr/local/bin/verify-verus.sh && \
-    echo 'done' >> /usr/local/bin/verify-verus.sh && \
-    echo '' >> /usr/local/bin/verify-verus.sh && \
-    echo '# Change to the specified working directory' >> /usr/local/bin/verify-verus.sh && \
-    echo 'cd "$WORK_DIR" || { echo "Error: Cannot change to directory $WORK_DIR"; exit 1; }' >> /usr/local/bin/verify-verus.sh && \
-    echo '' >> /usr/local/bin/verify-verus.sh && \
-    echo '# Build the cargo verus command' >> /usr/local/bin/verify-verus.sh && \
-    echo 'CMD="cargo verus verify"' >> /usr/local/bin/verify-verus.sh && \
-    echo '' >> /usr/local/bin/verify-verus.sh && \
-    echo '# Add module-specific verification if specified' >> /usr/local/bin/verify-verus.sh && \
-    echo 'if [ -n "$MODULE" ]; then' >> /usr/local/bin/verify-verus.sh && \
-    echo '    CMD="$CMD -- --verify-only-module $MODULE"' >> /usr/local/bin/verify-verus.sh && \
-    echo 'fi' >> /usr/local/bin/verify-verus.sh && \
-    echo '' >> /usr/local/bin/verify-verus.sh && \
-    echo '# Add any extra arguments' >> /usr/local/bin/verify-verus.sh && \
-    echo 'if [ -n "$EXTRA_ARGS" ]; then' >> /usr/local/bin/verify-verus.sh && \
-    echo '    CMD="$CMD $EXTRA_ARGS"' >> /usr/local/bin/verify-verus.sh && \
-    echo 'fi' >> /usr/local/bin/verify-verus.sh && \
-    echo '' >> /usr/local/bin/verify-verus.sh && \
-    echo 'echo "Running: $CMD"' >> /usr/local/bin/verify-verus.sh && \
-    echo 'echo "Working directory: $(pwd)"' >> /usr/local/bin/verify-verus.sh && \
-    echo '' >> /usr/local/bin/verify-verus.sh && \
-    echo '# Execute the command' >> /usr/local/bin/verify-verus.sh && \
-    echo 'eval $CMD' >> /usr/local/bin/verify-verus.sh
+COPY verify-verus.sh /usr/local/bin/verify-verus.sh
 
 # Make the script executable
 RUN chmod +x /usr/local/bin/verify-verus.sh
+
+# Print Verus version for verification
+RUN /root/.cargo/bin/verus-x86-linux/verus --version
 
 # Default command to run Verus verification
 # Can be overridden with docker run arguments
