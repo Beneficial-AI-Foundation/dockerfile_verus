@@ -3,6 +3,7 @@
 # Default values
 WORK_DIR="/workspace"
 MODULE=""
+FUNCTION=""
 PACKAGE=""
 EXTRA_ARGS=""
 
@@ -15,6 +16,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --verify-only-module)
             MODULE="$2"
+            shift 2
+            ;;
+        --verify-function)
+            FUNCTION="$2"
             shift 2
             ;;
         --package|-p)
@@ -49,9 +54,22 @@ if [ -n "$PACKAGE" ]; then
     CMD="$CMD -p $PACKAGE"
 fi
 
+# Build the verus-specific arguments
+VERUS_ARGS=""
+
 # Add module-specific verification if specified
 if [ -n "$MODULE" ]; then
-    CMD="$CMD -- --verify-only-module $MODULE"
+    VERUS_ARGS="$VERUS_ARGS --verify-only-module $MODULE"
+fi
+
+# Add function-specific verification if specified
+if [ -n "$FUNCTION" ]; then
+    VERUS_ARGS="$VERUS_ARGS --verify-function $FUNCTION"
+fi
+
+# Add verus arguments if any were specified
+if [ -n "$VERUS_ARGS" ]; then
+    CMD="$CMD --$VERUS_ARGS"
 fi
 
 # Add any extra arguments
@@ -80,6 +98,14 @@ if [ -n "$MODULE" ]; then
     MODULE_PATH=$(echo "$MODULE" | sed 's/::/\//g')
     echo "Expected file path pattern: src/${MODULE_PATH}.rs or src/${MODULE_PATH}/mod.rs"
     find src -name "*.rs" | grep -E "(${MODULE_PATH}\.rs|${MODULE_PATH}/mod\.rs)" || echo "Module file not found with simple search"
+fi
+
+# Show function verification info
+if [ -n "$FUNCTION" ]; then
+    echo "Verifying function: $FUNCTION"
+    if [ -n "$MODULE" ]; then
+        echo "In module: $MODULE"
+    fi
 fi
 
 echo "------- End Debug Information -------"
