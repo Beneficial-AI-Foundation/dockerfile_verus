@@ -2,8 +2,8 @@
 FROM ubuntu:22.04
 
 # Build argument to choose between prerelease and stable
-# Set to "stable" for latest stable release, "prerelease" for latest prerelease (default)
-ARG VERUS_RELEASE_TYPE=prerelease
+# Set to "prerelease" for latest prerelease, "stable" for latest stable release (default)
+ARG VERUS_RELEASE_TYPE=stable
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive

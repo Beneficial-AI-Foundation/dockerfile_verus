@@ -9,27 +9,27 @@ The container automatically handles module resolution issues by building the pro
 ### Build the Docker Image
 
 ```bash
-# Build with latest Verus prerelease (default)
-docker build -f Dockerfile.verus -t verus-verifier-prerelease .
+# Build with latest stable release (default)
+docker build -f Dockerfile.verus -t verus-verifier-stable .
 
-# Build with latest stable release
-docker build -f Dockerfile.verus --build-arg VERUS_RELEASE_TYPE=stable -t verus-verifier-stable .
+# Build with latest Verus prerelease
+docker build -f Dockerfile.verus --build-arg VERUS_RELEASE_TYPE=prerelease -t verus-verifier-prerelease .
 ```
 
 ### Basic Usage
 
 ```bash
 # Verify entire project
-docker run --rm -v /path/to/project:/workspace verus-verifier-prerelease \
+docker run --rm -v /path/to/project:/workspace verus-verifier-stable \
   /usr/local/bin/verify-verus.sh --work-dir /workspace
 
 # Verify specific module
-docker run --rm -v /path/to/project:/workspace verus-verifier-prerelease \
+docker run --rm -v /path/to/project:/workspace verus-verifier-stable \
   /usr/local/bin/verify-verus.sh --work-dir /workspace \
   --verify-only-module module::path::name
 
 # Verify specific function within a module
-docker run --rm -v /path/to/project:/workspace verus-verifier-prerelease \
+docker run --rm -v /path/to/project:/workspace verus-verifier-stable \
   /usr/local/bin/verify-verus.sh --work-dir /workspace \
   --verify-only-module module::path::name \
   --verify-function function_name
@@ -39,16 +39,16 @@ docker run --rm -v /path/to/project:/workspace verus-verifier-prerelease \
 
 ```bash
 # Verify entire project
-docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-prerelease \
+docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-stable \
   /usr/local/bin/verify-verus.sh --work-dir /workspace/curve25519-dalek
 
 # Verify specific module
-docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-prerelease \
+docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-stable \
   /usr/local/bin/verify-verus.sh --work-dir /workspace/curve25519-dalek \
   --verify-only-module backend::serial::u64::field_verus
 
 # Verify specific function (pow2k) in module
-docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-prerelease \
+docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-stable \
   /usr/local/bin/verify-verus.sh --work-dir /workspace/curve25519-dalek \
   --verify-only-module backend::serial::u64::field_verus \
   --verify-function pow2k
@@ -72,7 +72,7 @@ docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-
 
 - **Base Image**: Ubuntu 22.04
 - **Rust Version**: 1.88.0
-- **Verus**: Latest release (prerelease by default, or stable via build arg)
+- **Verus**: Latest release (stable by default, or prerelease via build arg)
 - **Working Directory**: `/workspace` (mount your project here)
 
 ## Troubleshooting
@@ -85,10 +85,10 @@ If you get "could not find module" errors, the script automatically runs `cargo 
 
 ```bash
 # Open a bash shell in the container
-docker run --rm -it -v /path/to/project:/workspace verus-verifier-prerelease bash
+docker run --rm -it -v /path/to/project:/workspace verus-verifier-stable bash
 
 # Check Verus version
-docker run --rm verus-verifier-prerelease /root/.cargo/bin/verus-x86-linux/verus --version
+docker run --rm verus-verifier-stable /root/.cargo/bin/verus-x86-linux/verus --version
 ```
 
 ## Repository Structure
