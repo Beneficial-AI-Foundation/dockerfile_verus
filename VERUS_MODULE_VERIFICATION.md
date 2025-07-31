@@ -20,43 +20,43 @@ error: could not find module backend::serial::u64::field_verus specified by --ve
 
 ## Root Cause
 
-The issue appears to be related to how Verus resolves modules when running in a Docker container with mounted volumes. When Verus is invoked from a workspace context, it may have difficulty locating modules in sub-crates.
+The issue occurs because Verus needs the project to be built before it can properly resolve modules in the crate. When running in a fresh Docker container without any cached build artifacts, Verus cannot find the module structure without first compiling the project.
 
-## Solutions
+## Solution
 
-### Solution 1: Run without module filtering first
+The issue has been resolved by updating the `verify-verus.sh` script to run `cargo build` before `cargo verus verify`. This ensures that the project is compiled and all module structures are available for Verus to resolve.
 
-First, verify that the Docker container can build and verify the entire project:
+The updated script now:
+1. Runs `cargo build` (with package selection if specified)
+2. Then runs `cargo verus verify` with the module filter
 
-```bash
-docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-prerelease \
-  bash -c "cd /workspace/curve25519-dalek && cargo verus verify"
-```
-
-### Solution 2: Use the updated verify-verus.sh script
-
-The updated script includes better debugging and workspace handling. Make sure your verify-verus.sh includes:
-
-1. Workspace detection
-2. Proper CARGO_TARGET_DIR setting
-3. Debug output to help diagnose issues
-
-### Solution 3: Alternative Docker command
-
-If the issue persists, you can bypass the wrapper script and run the command directly:
+With this fix, the original command now works correctly:
 
 ```bash
 docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-prerelease \
-  bash -c "cd /workspace/curve25519-dalek && cargo verus verify -- --verify-only-module backend::serial::u64::field_verus"
+  /usr/local/bin/verify-verus.sh --work-dir /workspace/curve25519-dalek \
+  --verify-only-module backend::serial::u64::field_verus
 ```
 
-### Solution 4: Build the project first
+## Alternative Solutions (if needed)
 
-Sometimes Verus needs the project to be built before it can resolve modules:
+### Manual build step
+
+If you're using an older version of the script, you can manually add the build step:
 
 ```bash
 docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-prerelease \
   bash -c "cd /workspace/curve25519-dalek && cargo build && cargo verus verify -- --verify-only-module backend::serial::u64::field_verus"
+```
+
+### For workspace projects with packages
+
+If you need to specify a particular package in a workspace:
+
+```bash
+docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-prerelease \
+  /usr/local/bin/verify-verus.sh --work-dir /workspace --package curve25519-dalek \
+  --verify-only-module backend::serial::u64::field_verus
 ```
 
 ## Debugging Steps
