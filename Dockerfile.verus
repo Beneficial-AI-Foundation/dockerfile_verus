@@ -37,54 +37,52 @@ RUN LATEST_RELEASE=$(curl -s https://api.github.com/repos/verus-lang/verus/relea
 WORKDIR /workspace
 
 # Create a script to handle flexible verification
-COPY <<'EOF' /usr/local/bin/verify-verus.sh
-#!/bin/bash
-
-# Default values
-WORK_DIR="/workspace"
-MODULE=""
-EXTRA_ARGS=""
-
-# Parse arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --work-dir)
-            WORK_DIR="$2"
-            shift 2
-            ;;
-        --verify-only-module)
-            MODULE="$2"
-            shift 2
-            ;;
-        *)
-            EXTRA_ARGS="$EXTRA_ARGS $1"
-            shift
-            ;;
-    esac
-done
-
-# Change to the specified working directory
-cd "$WORK_DIR" || { echo "Error: Cannot change to directory $WORK_DIR"; exit 1; }
-
-# Build the cargo verus command
-CMD="cargo verus verify"
-
-# Add module-specific verification if specified
-if [ -n "$MODULE" ]; then
-    CMD="$CMD -- --verify-only-module $MODULE"
-fi
-
-# Add any extra arguments
-if [ -n "$EXTRA_ARGS" ]; then
-    CMD="$CMD $EXTRA_ARGS"
-fi
-
-echo "Running: $CMD"
-echo "Working directory: $(pwd)"
-
-# Execute the command
-eval $CMD
-EOF
+RUN echo '#!/bin/bash' > /usr/local/bin/verify-verus.sh && \
+    echo '' >> /usr/local/bin/verify-verus.sh && \
+    echo '# Default values' >> /usr/local/bin/verify-verus.sh && \
+    echo 'WORK_DIR="/workspace"' >> /usr/local/bin/verify-verus.sh && \
+    echo 'MODULE=""' >> /usr/local/bin/verify-verus.sh && \
+    echo 'EXTRA_ARGS=""' >> /usr/local/bin/verify-verus.sh && \
+    echo '' >> /usr/local/bin/verify-verus.sh && \
+    echo '# Parse arguments' >> /usr/local/bin/verify-verus.sh && \
+    echo 'while [[ $# -gt 0 ]]; do' >> /usr/local/bin/verify-verus.sh && \
+    echo '    case $1 in' >> /usr/local/bin/verify-verus.sh && \
+    echo '        --work-dir)' >> /usr/local/bin/verify-verus.sh && \
+    echo '            WORK_DIR="$2"' >> /usr/local/bin/verify-verus.sh && \
+    echo '            shift 2' >> /usr/local/bin/verify-verus.sh && \
+    echo '            ;;' >> /usr/local/bin/verify-verus.sh && \
+    echo '        --verify-only-module)' >> /usr/local/bin/verify-verus.sh && \
+    echo '            MODULE="$2"' >> /usr/local/bin/verify-verus.sh && \
+    echo '            shift 2' >> /usr/local/bin/verify-verus.sh && \
+    echo '            ;;' >> /usr/local/bin/verify-verus.sh && \
+    echo '        *)' >> /usr/local/bin/verify-verus.sh && \
+    echo '            EXTRA_ARGS="$EXTRA_ARGS $1"' >> /usr/local/bin/verify-verus.sh && \
+    echo '            shift' >> /usr/local/bin/verify-verus.sh && \
+    echo '            ;;' >> /usr/local/bin/verify-verus.sh && \
+    echo '    esac' >> /usr/local/bin/verify-verus.sh && \
+    echo 'done' >> /usr/local/bin/verify-verus.sh && \
+    echo '' >> /usr/local/bin/verify-verus.sh && \
+    echo '# Change to the specified working directory' >> /usr/local/bin/verify-verus.sh && \
+    echo 'cd "$WORK_DIR" || { echo "Error: Cannot change to directory $WORK_DIR"; exit 1; }' >> /usr/local/bin/verify-verus.sh && \
+    echo '' >> /usr/local/bin/verify-verus.sh && \
+    echo '# Build the cargo verus command' >> /usr/local/bin/verify-verus.sh && \
+    echo 'CMD="cargo verus verify"' >> /usr/local/bin/verify-verus.sh && \
+    echo '' >> /usr/local/bin/verify-verus.sh && \
+    echo '# Add module-specific verification if specified' >> /usr/local/bin/verify-verus.sh && \
+    echo 'if [ -n "$MODULE" ]; then' >> /usr/local/bin/verify-verus.sh && \
+    echo '    CMD="$CMD -- --verify-only-module $MODULE"' >> /usr/local/bin/verify-verus.sh && \
+    echo 'fi' >> /usr/local/bin/verify-verus.sh && \
+    echo '' >> /usr/local/bin/verify-verus.sh && \
+    echo '# Add any extra arguments' >> /usr/local/bin/verify-verus.sh && \
+    echo 'if [ -n "$EXTRA_ARGS" ]; then' >> /usr/local/bin/verify-verus.sh && \
+    echo '    CMD="$CMD $EXTRA_ARGS"' >> /usr/local/bin/verify-verus.sh && \
+    echo 'fi' >> /usr/local/bin/verify-verus.sh && \
+    echo '' >> /usr/local/bin/verify-verus.sh && \
+    echo 'echo "Running: $CMD"' >> /usr/local/bin/verify-verus.sh && \
+    echo 'echo "Working directory: $(pwd)"' >> /usr/local/bin/verify-verus.sh && \
+    echo '' >> /usr/local/bin/verify-verus.sh && \
+    echo '# Execute the command' >> /usr/local/bin/verify-verus.sh && \
+    echo 'eval $CMD' >> /usr/local/bin/verify-verus.sh
 
 # Make the script executable
 RUN chmod +x /usr/local/bin/verify-verus.sh
