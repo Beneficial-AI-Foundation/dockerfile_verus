@@ -117,13 +117,13 @@ if [ ! -f "Cargo.lock" ] && [ -f "../Cargo.lock" ]; then
 fi
 
 # Build the project first to ensure all dependencies and modules are resolved
-echo "Building project to ensure module resolution..."
-BUILD_CMD="cargo build"
-if [ -n "$PACKAGE" ]; then
-    BUILD_CMD="$BUILD_CMD -p $PACKAGE"
-fi
-echo "Running: $BUILD_CMD"
-eval $BUILD_CMD
+#echo "Building project to ensure module resolution..."
+#BUILD_CMD="cargo build"
+#if [ -n "$PACKAGE" ]; then
+#    BUILD_CMD="$BUILD_CMD -p $PACKAGE"
+#fi
+#echo "Running: $BUILD_CMD"
+#eval $BUILD_CMD
 
 # Execute the command
 echo "Executing: $CMD"
