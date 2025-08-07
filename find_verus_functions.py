@@ -232,16 +232,42 @@ class VerificationParser:
     def parse_verification_output_from_content(self, output_content):
         """Parse verification output content and extract files with errors and their line numbers."""
         errors_by_file = {}
+        lines = output_content.split('\n')
         
-        for line in output_content.split('\n'):
+        for i, line in enumerate(lines):
             match = self.error_pattern.search(line)
             if match:
                 file_path = match.group(1)
                 line_number = int(match.group(2))
                 
-                if file_path not in errors_by_file:
-                    errors_by_file[file_path] = []
-                errors_by_file[file_path].append(line_number)
+                # Check if this is an actual error location, not just a note
+                # Look at the previous lines to see if there's an actual error message
+                is_actual_error = False
+                
+                # Look back up to 10 lines to find context
+                for j in range(max(0, i - 10), i):
+                    prev_line = lines[j].strip()
+                    
+                    # If we find an actual error indicator, this is a real error
+                    if prev_line.startswith('error:') or prev_line.startswith('error['):
+                        # Additional check: make sure it's not a verification-specific note
+                        if not (prev_line.startswith('note:') or 'has been running for' in prev_line or 
+                               'finished in' in prev_line or 'check has been running' in prev_line or
+                               'check finished in' in prev_line):
+                            is_actual_error = True
+                            break
+                    
+                    # If we encounter a note line that's clearly informational, skip this location
+                    if (prev_line.startswith('note:') and 
+                        ('has been running for' in prev_line or 'finished in' in prev_line or
+                         'check has been running' in prev_line or 'check finished in' in prev_line)):
+                        is_actual_error = False
+                        break
+                
+                if is_actual_error:
+                    if file_path not in errors_by_file:
+                        errors_by_file[file_path] = []
+                    errors_by_file[file_path].append(line_number)
         
         return errors_by_file
 
