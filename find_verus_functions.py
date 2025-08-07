@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """
-Python script to find all regular Rust function names inside Verus macros.
-Returns a simple list of function names without Verus-specific constructs.
-Can also categorize functions based on verification results.
+Python script to find all Rust function names inside Verus macros.
+Returns a simple list of function names including Verus-specific constructs by default.
+Can also categorize functions based on verification results from 'cargo verus verify' output.
+
+Features:
+- Extract regular Rust functions and Verus constructs (spec, proof, exec functions) from verus! {} blocks
+- Optionally exclude Verus constructs with --exclude-verus-constructs to get only regular functions
+- Parse verification output to categorize functions as verified/failed
+- Support both text and JSON output formats
+- Comprehensive compilation error and warning analysis
 """
 
 import re
 import json
+import sys
 from pathlib import Path
 
 
@@ -19,6 +27,17 @@ class CompilationErrorParser:
         self.file_location_pattern = re.compile(r'-->\s+([^:]+):(\d+):(\d+)')
         self.process_error_pattern = re.compile(r"process didn't exit successfully: (.+)")
         self.memory_error_pattern = re.compile(r'memory allocation of \d+ bytes failed')
+        # Pattern to detect verification results summary
+        self.verification_results_pattern = re.compile(r'verification results::\s*(\d+)\s+verified,\s*(\d+)\s+errors?')
+        # Verification-specific error patterns that should NOT be treated as compilation errors
+        self.verification_error_patterns = [
+            re.compile(r'error: assertion failed'),
+            re.compile(r'error: postcondition not satisfied'),
+            re.compile(r'error: precondition not satisfied'),
+            re.compile(r'error: loop invariant not preserved'),
+            re.compile(r'error: loop invariant not satisfied on entry'),
+            re.compile(r'error: assertion not satisfied'),
+        ]
         
     def parse_compilation_output(self, output_content):
         """Parse compilation output and extract errors and warnings."""
@@ -26,14 +45,35 @@ class CompilationErrorParser:
         warnings = []
         current_error = None
         current_warning = None
+        has_verification_results = False
         
         lines = output_content.split('\n')
+        
+        # First pass: check if we have verification results
+        for line in lines:
+            line = line.strip()
+            if self.verification_results_pattern.search(line):
+                has_verification_results = True
+                break
+        
         for i, line in enumerate(lines):
             line = line.strip()
+            
+            # Check for verification results summary - this indicates successful verification run
+            verification_results_match = self.verification_results_pattern.search(line)
+            if verification_results_match:
+                # This is a verification results line, not a compilation error
+                continue
             
             # Check for cargo compilation errors
             cargo_error_match = self.cargo_error_pattern.search(line)
             if cargo_error_match:
+                # If we have verification results, this "could not compile" might be
+                # just a side effect of verification failures, not a true compilation error
+                if has_verification_results:
+                    # Skip this as it's likely due to verification failures
+                    continue
+                    
                 if current_error:
                     errors.append(current_error)
                 current_error = {
@@ -78,6 +118,13 @@ class CompilationErrorParser:
             # Check for standard error format
             error_match = self.error_pattern.search(line)
             if error_match:
+                # Check if this is a verification-specific error that should not be treated as compilation error
+                is_verification_error = any(pattern.search(line) for pattern in self.verification_error_patterns)
+                
+                if is_verification_error:
+                    # Skip verification errors when parsing compilation errors
+                    continue
+                
                 if current_error:
                     errors.append(current_error)
                 current_error = {
@@ -149,6 +196,10 @@ class CompilationErrorParser:
             warnings.append(current_warning)
             
         return errors, warnings
+    
+    def has_verification_results(self, output_content):
+        """Check if the output contains verification results summary."""
+        return self.verification_results_pattern.search(output_content) is not None
 
 
 class VerificationParser:
@@ -165,9 +216,13 @@ class VerificationParser:
         except (FileNotFoundError, UnicodeDecodeError, PermissionError):
             return {}
         
+        return self.parse_verification_output_from_content(content)
+
+    def parse_verification_output_from_content(self, output_content):
+        """Parse verification output content and extract files with errors and their line numbers."""
         errors_by_file = {}
         
-        for line in content.split('\n'):
+        for line in output_content.split('\n'):
             match = self.error_pattern.search(line)
             if match:
                 file_path = match.group(1)
@@ -178,6 +233,8 @@ class VerificationParser:
                 errors_by_file[file_path].append(line_number)
         
         return errors_by_file
+
+
     
     def find_function_at_line(self, file_path, line_number, all_functions_with_lines):
         """Find the function that contains or is closest above the given line number."""
@@ -208,17 +265,28 @@ class VerificationParser:
 
 
 class RustFunctionFinder:
-    def __init__(self):
+    def __init__(self, include_verus_constructs=False):
         # Pattern to match the start of a verus macro block
         self.verus_start_pattern = re.compile(r'\bverus!\s*\{')
         
-        # Pattern to match only regular function definitions (not spec, proof, exec)
-        # This pattern ensures we don't match verus keywords before 'fn'
-        # We need to handle cases like "pub proof fn", "pub open spec fn", etc.
-        self.function_pattern = re.compile(r'(?:pub\s+)?(?!(?:spec|proof|exec|open|uninterp)\s+(?:spec\s+)?fn\s)fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
+        # Configuration for what to include
+        self.include_verus_constructs = include_verus_constructs
         
-        # Pattern to match const functions as well (but not spec const fn)
-        self.const_fn_pattern = re.compile(r'(?:pub\s+)?(?!(?:spec|open|uninterp)\s+)const\s+fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
+        if include_verus_constructs:
+            # Include all function types including Verus constructs
+            # Pattern to match any function definition (including spec, proof, exec, etc.)
+            self.function_pattern = re.compile(r'(?:pub\s+)?(?:(?:spec|proof|exec|open|uninterp|const)\s+)*fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
+            
+            # Pattern for const functions (including spec const fn)
+            self.const_fn_pattern = re.compile(r'(?:pub\s+)?(?:(?:spec|open|uninterp)\s+)?const\s+fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
+        else:
+            # Original behavior - only regular functions (not spec, proof, exec)
+            # This pattern ensures we don't match verus keywords before 'fn'
+            # We need to handle cases like "pub proof fn", "pub open spec fn", etc.
+            self.function_pattern = re.compile(r'(?:pub\s+)?(?!(?:spec|proof|exec|open|uninterp)\s+(?:spec\s+)?fn\s)fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
+            
+            # Pattern to match const functions as well (but not spec const fn)
+            self.const_fn_pattern = re.compile(r'(?:pub\s+)?(?!(?:spec|open|uninterp)\s+)const\s+fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
 
     def find_matching_brace(self, content, start_pos):
         """Find the position of the matching closing brace for a verus! macro."""
@@ -288,27 +356,44 @@ class RustFunctionFinder:
         # Remove comments to avoid false matches
         content_no_comments = self.remove_comments(block_content)
         
-        # Find all function-like patterns
-        # Pattern to match any function definition with capture groups for keywords and name
-        all_fn_pattern = re.compile(r'(?:pub\s+)?((?:spec|proof|exec|open|uninterp|const)\s+)*fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
-        
-        matches = all_fn_pattern.finditer(content_no_comments)
-        for match in matches:
-            keywords = match.group(1) if match.group(1) else ""
-            func_name = match.group(2)
-            
-            # Only include functions that don't have Verus-specific keywords
-            if not any(kw in keywords for kw in ['spec', 'proof', 'exec', 'open', 'uninterp']):
-                # Calculate line number within the original file
+        if self.include_verus_constructs:
+            # Include all function types including Verus constructs
+            # Find all function patterns using the configured function pattern
+            matches = self.function_pattern.finditer(content_no_comments)
+            for match in matches:
+                func_name = match.group(1)
                 line_number = block_start_line + content_no_comments[:match.start()].count('\n') + 1
                 functions.append((func_name, line_number))
-        
-        # Also check for const functions without Verus keywords
-        const_matches = self.const_fn_pattern.finditer(content_no_comments)
-        for match in const_matches:
-            func_name = match.group(1)
-            line_number = block_start_line + content_no_comments[:match.start()].count('\n') + 1
-            functions.append((func_name, line_number))
+            
+            # Also check for const functions
+            const_matches = self.const_fn_pattern.finditer(content_no_comments)
+            for match in const_matches:
+                func_name = match.group(1)
+                line_number = block_start_line + content_no_comments[:match.start()].count('\n') + 1
+                functions.append((func_name, line_number))
+        else:
+            # Original behavior - exclude Verus-specific keywords
+            # Find all function-like patterns
+            # Pattern to match any function definition with capture groups for keywords and name
+            all_fn_pattern = re.compile(r'(?:pub\s+)?((?:spec|proof|exec|open|uninterp|const)\s+)*fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
+            
+            matches = all_fn_pattern.finditer(content_no_comments)
+            for match in matches:
+                keywords = match.group(1) if match.group(1) else ""
+                func_name = match.group(2)
+                
+                # Only include functions that don't have Verus-specific keywords
+                if not any(kw in keywords for kw in ['spec', 'proof', 'exec', 'open', 'uninterp']):
+                    # Calculate line number within the original file
+                    line_number = block_start_line + content_no_comments[:match.start()].count('\n') + 1
+                    functions.append((func_name, line_number))
+            
+            # Also check for const functions without Verus keywords
+            const_matches = self.const_fn_pattern.finditer(content_no_comments)
+            for match in const_matches:
+                func_name = match.group(1)
+                line_number = block_start_line + content_no_comments[:match.start()].count('\n') + 1
+                functions.append((func_name, line_number))
                 
         return functions
 
@@ -399,12 +484,47 @@ class RustFunctionFinder:
 
 
 class VerusAnalyzer:
-    def __init__(self):
-        self.function_finder = RustFunctionFinder()
+    def __init__(self, include_verus_constructs=False):
+        self.function_finder = RustFunctionFinder(include_verus_constructs=include_verus_constructs)
         self.verification_parser = VerificationParser()
         self.compilation_parser = CompilationErrorParser()
+    
+    def filter_functions_by_module_and_function(self, all_functions_with_lines, functions_set, module_filter=None, function_filter=None):
+        """Filter functions based on module and/or function name filters."""
+        if not module_filter and not function_filter:
+            return functions_set
         
-    def analyze_output(self, path, output_content, output_file=None, exit_code=None):
+        filtered_functions = set()
+        
+        # Convert module filter from Rust path notation to file path
+        if module_filter:
+            # Convert "backend::serial::u64::field_verus" to "backend/serial/u64/field_verus"
+            module_path = module_filter.replace('::', '/')
+            
+        for file_path, functions in all_functions_with_lines.items():
+            file_path_str = str(file_path)
+            
+            # Check if this file matches the module filter
+            if module_filter:
+                # Check if the file path contains the module path
+                # We expect files like "src/backend/serial/u64/field_verus.rs" or "src/backend/serial/u64/field_verus/mod.rs"
+                if not (f"/{module_path}.rs" in file_path_str or f"/{module_path}/" in file_path_str):
+                    continue
+            
+            for func_name, line_number in functions:
+                # Check if function is in our target set
+                if func_name not in functions_set:
+                    continue
+                    
+                # Check if this function matches the function filter
+                if function_filter and func_name != function_filter:
+                    continue
+                
+                filtered_functions.add(func_name)
+        
+        return filtered_functions
+        
+    def analyze_output(self, path, output_content, output_file=None, exit_code=None, module_filter=None, function_filter=None):
         """Comprehensive analysis of Verus verification output."""
         # Parse compilation errors and warnings
         compilation_errors, compilation_warnings = self.compilation_parser.parse_compilation_output(output_content)
@@ -455,9 +575,9 @@ class VerusAnalyzer:
         
         # Check exit code as well - non-zero exit code usually means compilation failure
         if exit_code is not None and exit_code != 0:
-            if not has_compilation_errors:
-                # If we don't have detected compilation errors but exit code is non-zero,
-                # create a generic compilation error
+            if not has_compilation_errors and not has_verification_failures:
+                # If we don't have detected compilation errors or verification failures 
+                # but exit code is non-zero, create a generic error
                 compilation_errors.append({
                     "message": f"Command failed with exit code {exit_code}",
                     "file": None,
@@ -476,6 +596,20 @@ class VerusAnalyzer:
             status = "verification_failed"
         else:
             status = "success"
+        
+        # Apply module and function filtering if specified
+        if module_filter or function_filter:
+            verified_functions = self.filter_functions_by_module_and_function(
+                all_functions_with_lines, verified_functions, module_filter, function_filter
+            )
+            failed_functions = self.filter_functions_by_module_and_function(
+                all_functions_with_lines, failed_functions, module_filter, function_filter
+            )
+            
+            # Also filter all_function_names for consistency
+            all_function_names = self.filter_functions_by_module_and_function(
+                all_functions_with_lines, all_function_names, module_filter, function_filter
+            )
         
         return {
             "status": status,
@@ -513,34 +647,47 @@ def main():
     parser.add_argument('--format', choices=['text', 'json'], default='text', 
                        help='Output format (default: text)')
     parser.add_argument('--exit-code', type=int, help='Exit code from the verification command')
+    parser.add_argument('--exclude-verus-constructs', action='store_true',
+                       help='Exclude Verus constructs (spec, proof, exec) and only include regular functions')
+    parser.add_argument('--verify-only-module', help='Module to filter results by (e.g., backend::serial::u64::field_verus)')
+    parser.add_argument('--verify-function', help='Function to filter results by')
     
     args = parser.parse_args()
     
     if args.format == 'json' or args.json_output:
         # JSON output mode
-        analyzer = VerusAnalyzer()
+        analyzer = VerusAnalyzer(include_verus_constructs=not args.exclude_verus_constructs)
         
         if args.output_content:
             # Analyze from content string
-            result = analyzer.analyze_output(args.path, args.output_content, exit_code=args.exit_code)
+            result = analyzer.analyze_output(args.path, args.output_content, exit_code=args.exit_code, 
+                                           module_filter=args.verify_only_module, function_filter=args.verify_function)
         elif args.output_file:
             # Read output file and analyze
             try:
                 with open(args.output_file, 'r', encoding='utf-8') as f:
                     content = f.read()
-                result = analyzer.analyze_output(args.path, content, args.output_file, exit_code=args.exit_code)
+                result = analyzer.analyze_output(args.path, content, args.output_file, exit_code=args.exit_code,
+                                                module_filter=args.verify_only_module, function_filter=args.verify_function)
             except (FileNotFoundError, UnicodeDecodeError, PermissionError) as e:
                 print(f"Error reading output file: {e}", file=sys.stderr)
                 return 1
         else:
             # No output to analyze, just get function list
-            finder = RustFunctionFinder()
+            finder = RustFunctionFinder(include_verus_constructs=not args.exclude_verus_constructs)
             all_functions_with_lines = finder.find_all_functions(args.path)
             all_function_names = set()
             
             for file_path, functions in all_functions_with_lines.items():
                 for func_name, line_number in functions:
                     all_function_names.add(func_name)
+            
+            # Apply filtering if specified
+            if args.verify_only_module or args.verify_function:
+                analyzer = VerusAnalyzer(include_verus_constructs=not args.exclude_verus_constructs)
+                all_function_names = analyzer.filter_functions_by_module_and_function(
+                    all_functions_with_lines, all_function_names, args.verify_only_module, args.verify_function
+                )
             
             result = {
                 "status": "functions_only",
@@ -575,7 +722,7 @@ def main():
     
     else:
         # Original text output behavior
-        finder = RustFunctionFinder()
+        finder = RustFunctionFinder(include_verus_constructs=not args.exclude_verus_constructs)
         
         if args.output_file:
             # Categorize functions based on verification results

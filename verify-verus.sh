@@ -156,12 +156,20 @@ if [ -n "$JSON_OUTPUT" ]; then
     echo "Processing output and generating JSON report..."
     
     # Use Python script to analyze output and create JSON report
-    python3 /usr/local/bin/find_verus_functions.py \
-        "$WORK_DIR" \
-        --output-file "$TEMP_OUTPUT" \
-        --json-output "$JSON_OUTPUT" \
-        --format json \
-        --exit-code "$VERUS_EXIT_CODE"
+    PYTHON_CMD="python3 /usr/local/bin/find_verus_functions.py \"$WORK_DIR\" --output-file \"$TEMP_OUTPUT\" --json-output \"$JSON_OUTPUT\" --format json --exit-code \"$VERUS_EXIT_CODE\""
+    
+    # Add module filter if specified
+    if [ -n "$MODULE" ]; then
+        PYTHON_CMD="$PYTHON_CMD --verify-only-module \"$MODULE\""
+    fi
+    
+    # Add function filter if specified
+    if [ -n "$FUNCTION" ]; then
+        PYTHON_CMD="$PYTHON_CMD --verify-function \"$FUNCTION\""
+    fi
+    
+    echo "Running Python analysis: $PYTHON_CMD"
+    eval "$PYTHON_CMD"
     
     if [ $? -eq 0 ]; then
         echo "JSON report generated: $JSON_OUTPUT"
