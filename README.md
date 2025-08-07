@@ -6,7 +6,24 @@ The container automatically handles module resolution issues by building the pro
 
 ## Quick Start
 
-### Build the Docker Image
+### Using Pre-built Images (Recommended)
+
+Pre-built images are available from GitHub Container Registry and are automatically updated with the latest Verus releases:
+
+```bash
+# Pull latest stable release
+docker pull ghcr.io/beneficial-ai-foundation/dockerfile_verus:latest
+
+# Pull latest prerelease
+docker pull ghcr.io/beneficial-ai-foundation/dockerfile_verus:prerelease
+
+# Pull specific version
+docker pull ghcr.io/beneficial-ai-foundation/dockerfile_verus:v1.0.0
+```
+
+### Build the Docker Image Locally
+
+If you prefer to build locally or need customizations:
 
 ```bash
 # Build with latest stable release (default)
@@ -19,32 +36,36 @@ docker build -f Dockerfile.verus --build-arg VERUS_RELEASE_TYPE=prerelease -t ve
 ### Basic Usage
 
 ```bash
-# Verify entire project
-docker run --rm -v /path/to/project:/workspace verus-verifier-stable \
+# Verify entire project (using pre-built image)
+docker run --rm -v /path/to/project:/workspace ghcr.io/beneficial-ai-foundation/dockerfile_verus:latest \
   /usr/local/bin/verify-verus.sh --work-dir /workspace
 
 # Verify specific module
-docker run --rm -v /path/to/project:/workspace verus-verifier-stable \
+docker run --rm -v /path/to/project:/workspace ghcr.io/beneficial-ai-foundation/dockerfile_verus:latest \
   /usr/local/bin/verify-verus.sh --work-dir /workspace \
   --verify-only-module module::path::name
 
 # Verify specific function within a module
-docker run --rm -v /path/to/project:/workspace verus-verifier-stable \
+docker run --rm -v /path/to/project:/workspace ghcr.io/beneficial-ai-foundation/dockerfile_verus:latest \
   /usr/local/bin/verify-verus.sh --work-dir /workspace \
   --verify-only-module module::path::name \
   --verify-function function_name
 
 # Generate JSON report with verification results
-docker run --rm -v /path/to/project:/workspace verus-verifier-stable \
+docker run --rm -v /path/to/project:/workspace ghcr.io/beneficial-ai-foundation/dockerfile_verus:latest \
   /usr/local/bin/verify-verus.sh --work-dir /workspace \
   --json-output /workspace/verification_report.json
+
+# Use prerelease version for latest features
+docker run --rm -v /path/to/project:/workspace ghcr.io/beneficial-ai-foundation/dockerfile_verus:prerelease \
+  /usr/local/bin/verify-verus.sh --work-dir /workspace
 ```
 
 ### Example: curve25519-dalek
 
 ```bash
 # Verify entire project
-docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-stable \
+docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace ghcr.io/beneficial-ai-foundation/dockerfile_verus:latest \
   /usr/local/bin/verify-verus.sh --work-dir /workspace/curve25519-dalek
 
 # Verify specific module
@@ -125,6 +146,26 @@ When using `--json-output`, the script generates a detailed JSON report containi
 - **Rust Version**: 1.88.0
 - **Verus**: Latest release (stable by default, or prerelease via build arg)
 - **Working Directory**: `/workspace` (mount your project here)
+- **Architectures**: amd64, arm64 (Apple Silicon, ARM servers)
+
+## Automated Builds & Releases
+
+Images are automatically built and published to GitHub Container Registry:
+
+- **Triggers**: 
+  - New commits to master branch
+  - New version tags
+  - Weekly schedule (to get latest Verus releases)
+  - Manual dispatch
+
+- **Available Tags**:
+  - `latest` - Latest stable Verus release
+  - `stable` - Latest stable Verus release  
+  - `prerelease` - Latest Verus prerelease
+  - `v1.0.0` - Specific tagged versions
+  - `v1.0.0-prerelease` - Prerelease variants of tagged versions
+
+The containers are automatically updated weekly to include the latest Verus releases.
 
 ## Troubleshooting
 
@@ -148,4 +189,3 @@ docker run --rm verus-verifier-stable /root/.cargo/bin/verus-x86-linux/verus --v
 - `verify-verus.sh`: Verification script with automatic build and module/function selection
 - `find_verus_functions.py`: Python script for analyzing Verus output and generating JSON reports
 - `README.md`: This documentation
-- `VERUS_MODULE_VERIFICATION.md`: Technical details about the module resolution fix
