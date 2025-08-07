@@ -146,7 +146,7 @@ When using `--json-output`, the script generates a detailed JSON report containi
 - **Rust Version**: 1.88.0
 - **Verus**: Latest release (stable by default, or prerelease via build arg)
 - **Working Directory**: `/workspace` (mount your project here)
-- **Architectures**: amd64, arm64 (Apple Silicon, ARM servers)
+- **Architecture**: amd64/x86_64 only (other systems can be supported if need be)
 
 ## Automated Builds & Releases
 

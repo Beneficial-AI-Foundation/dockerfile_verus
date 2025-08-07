@@ -14,7 +14,6 @@ Features:
 
 import re
 import json
-import sys
 from pathlib import Path
 
 
