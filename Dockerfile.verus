@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     jq \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust toolchain 1.88.0
@@ -54,9 +55,11 @@ WORKDIR /workspace
 
 # Create a script to handle flexible verification
 COPY verify-verus.sh /usr/local/bin/verify-verus.sh
+COPY find_verus_functions.py /usr/local/bin/find_verus_functions.py
 
-# Make the script executable
+# Make the scripts executable
 RUN chmod +x /usr/local/bin/verify-verus.sh
+RUN chmod +x /usr/local/bin/find_verus_functions.py
 
 # Print Verus version for verification
 RUN /root/.cargo/bin/verus-x86-linux/verus --version

@@ -6,6 +6,7 @@ MODULE=""
 FUNCTION=""
 PACKAGE=""
 EXTRA_ARGS=""
+JSON_OUTPUT=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -24,6 +25,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --package|-p)
             PACKAGE="$2"
+            shift 2
+            ;;
+        --json-output)
+            JSON_OUTPUT="$2"
             shift 2
             ;;
         *)
@@ -125,6 +130,60 @@ fi
 #echo "Running: $BUILD_CMD"
 #eval $BUILD_CMD
 
-# Execute the command
+# Create output directory if JSON output is specified
+if [ -n "$JSON_OUTPUT" ]; then
+    mkdir -p "$(dirname "$JSON_OUTPUT")"
+fi
+
+# Create temporary file for output
+TEMP_OUTPUT=$(mktemp /tmp/verus_output.XXXXXX)
+
+# Execute the command and capture both stdout and stderr
 echo "Executing: $CMD"
-eval $CMD
+echo "Capturing output to: $TEMP_OUTPUT"
+
+# Run the command and capture output, preserving exit code
+set +e
+eval "$CMD" 2>&1 | tee "$TEMP_OUTPUT"
+VERUS_EXIT_CODE=${PIPESTATUS[0]}
+set -e
+
+echo ""
+echo "Verus command completed with exit code: $VERUS_EXIT_CODE"
+
+# Process output if JSON output is requested
+if [ -n "$JSON_OUTPUT" ]; then
+    echo "Processing output and generating JSON report..."
+    
+    # Use Python script to analyze output and create JSON report
+    python3 /usr/local/bin/find_verus_functions.py \
+        "$WORK_DIR" \
+        --output-file "$TEMP_OUTPUT" \
+        --json-output "$JSON_OUTPUT" \
+        --format json \
+        --exit-code "$VERUS_EXIT_CODE"
+    
+    if [ $? -eq 0 ]; then
+        echo "JSON report generated: $JSON_OUTPUT"
+        
+        # Show summary from JSON if possible
+        if command -v jq >/dev/null 2>&1; then
+            echo ""
+            echo "=== VERIFICATION SUMMARY ==="
+            jq -r '.summary | "Total functions: \(.total_functions)", "Verified: \(.verified_functions)", "Failed: \(.failed_functions)", "Compilation errors: \(.compilation_errors)", "Warnings: \(.compilation_warnings)"' "$JSON_OUTPUT"
+            echo "Status: $(jq -r '.status' "$JSON_OUTPUT")"
+        else
+            echo "Install 'jq' to see JSON summary in terminal"
+        fi
+    else
+        echo "Warning: Failed to generate JSON report"
+    fi
+else
+    echo "No JSON output requested. Use --json-output <file> to generate detailed report."
+fi
+
+# Clean up temporary file
+rm -f "$TEMP_OUTPUT"
+
+# Exit with the same code as the Verus command
+exit $VERUS_EXIT_CODE

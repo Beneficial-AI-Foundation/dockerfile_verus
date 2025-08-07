@@ -33,6 +33,11 @@ docker run --rm -v /path/to/project:/workspace verus-verifier-stable \
   /usr/local/bin/verify-verus.sh --work-dir /workspace \
   --verify-only-module module::path::name \
   --verify-function function_name
+
+# Generate JSON report with verification results
+docker run --rm -v /path/to/project:/workspace verus-verifier-stable \
+  /usr/local/bin/verify-verus.sh --work-dir /workspace \
+  --json-output /workspace/verification_report.json
 ```
 
 ### Example: curve25519-dalek
@@ -52,6 +57,11 @@ docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-
   /usr/local/bin/verify-verus.sh --work-dir /workspace/curve25519-dalek \
   --verify-only-module backend::serial::u64::field_verus \
   --verify-function pow2k
+
+# Generate comprehensive JSON report
+docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier-stable \
+  /usr/local/bin/verify-verus.sh --work-dir /workspace/curve25519-dalek \
+  --json-output /workspace/curve25519_verification.json
 ```
 
 ## Parameters
@@ -60,6 +70,45 @@ docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-
 - `--verify-only-module`: Specify a single module to verify
 - `--verify-function`: Specify a single function to verify (requires --verify-only-module)
 - `--package` or `-p`: For workspace projects, specify which package to verify
+- `--json-output`: Generate a comprehensive JSON report with verification results
+
+## JSON Output Format
+
+When using `--json-output`, the script generates a detailed JSON report containing:
+
+```json
+{
+  "status": "success|compilation_failed|verification_failed",
+  "summary": {
+    "total_functions": 42,
+    "verified_functions": 35,
+    "failed_functions": 7,
+    "compilation_errors": 0,
+    "compilation_warnings": 2
+  },
+  "compilation": {
+    "errors": [
+      {
+        "message": "error description",
+        "file": "src/example.rs",
+        "line": 123,
+        "column": 45,
+        "full_message": ["full error context..."]
+      }
+    ],
+    "warnings": [...]
+  },
+  "verification": {
+    "verified_functions": ["func1", "func2", ...],
+    "failed_functions": ["func3", "func4", ...]
+  },
+  "functions_by_file": {
+    "src/example.rs": [
+      {"name": "func_name", "line": 10}
+    ]
+  }
+}
+```
 
 ## Features
 
@@ -67,6 +116,8 @@ docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-
 - **Workspace Support**: Handles Rust workspace projects with multiple crates
 - **Debug Output**: Shows the command being executed, working directory, and Verus version
 - **Module Resolution Fix**: Solves the "could not find module" error when running in Docker containers
+- **JSON Reporting**: Generate comprehensive JSON reports with compilation errors and verification results
+- **Function Analysis**: Automatically categorize functions as verified or failed based on Verus output
 
 ## Container Details
 
@@ -95,5 +146,6 @@ docker run --rm verus-verifier-stable /root/.cargo/bin/verus-x86-linux/verus --v
 
 - `Dockerfile.verus`: The Docker image definition
 - `verify-verus.sh`: Verification script with automatic build and module/function selection
+- `find_verus_functions.py`: Python script for analyzing Verus output and generating JSON reports
 - `README.md`: This documentation
 - `VERUS_MODULE_VERIFICATION.md`: Technical details about the module resolution fix
