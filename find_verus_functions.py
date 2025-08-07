@@ -207,6 +207,17 @@ class VerificationParser:
         # Pattern to match error lines with file path and line number
         # Example: "   --> curve25519-dalek/src/backend/serial/u64/field_verus.rs:446:20"
         self.error_pattern = re.compile(r'-->\s+([^:]+):(\d+):\d+')
+        
+        # Pattern to match verification failure indicators
+        self.verification_failure_pattern = re.compile(r'error.*assertion failed')
+        self.verification_error_types = [
+            'assertion failed',
+            'postcondition not satisfied', 
+            'precondition not satisfied',
+            'loop invariant not preserved',
+            'loop invariant not satisfied on entry',
+            'assertion not satisfied'
+        ]
     
     def parse_verification_output(self, output_file_path):
         """Parse verification output and extract files with errors and their line numbers."""
@@ -233,6 +244,102 @@ class VerificationParser:
                 errors_by_file[file_path].append(line_number)
         
         return errors_by_file
+
+    def parse_verification_failures(self, output_content):
+        """Parse verification failures and return detailed information."""
+        failures = []
+        lines = output_content.split('\n')
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Check if this line indicates a verification failure
+            failure_detected = False
+            error_type = None
+            for error_type_pattern in self.verification_error_types:
+                if error_type_pattern in line:
+                    failure_detected = True
+                    error_type = error_type_pattern
+                    break
+            
+            if failure_detected and 'error' in line.lower():
+                # Capture the complete error text starting from this line
+                error_start_line = i
+                file_path = None
+                line_number = None
+                column = None
+                
+                # Look ahead for the file location and collect complete error text
+                full_error_lines = []
+                location_found_at = -1
+                
+                # Look ahead to find the complete error block
+                for j in range(i, min(i + 15, len(lines))):
+                    current_line = lines[j]
+                    full_error_lines.append(current_line)
+                    
+                    # Check for file location
+                    match = self.error_pattern.search(current_line)
+                    if match and location_found_at == -1:
+                        file_path = match.group(1)
+                        line_number = int(match.group(2))
+                        location_found_at = j
+                        
+                        # Extract column if available
+                        try:
+                            parts = current_line.split(':')
+                            if len(parts) >= 3:
+                                column = int(parts[-1])
+                        except (ValueError, IndexError):
+                            pass
+                    
+                    # Stop collecting when we hit an empty line after finding the location,
+                    # or when we encounter the next error/note  
+                    if location_found_at != -1 and j > location_found_at + 1:
+                        next_line = current_line.strip()
+                        # Stop on empty line that's followed by verification results/compilation errors
+                        if next_line == "" and j + 1 < len(lines):
+                            next_next_line = lines[j + 1].strip() if j + 1 < len(lines) else ""
+                            if next_next_line.startswith('error:') or next_next_line.startswith('verification results') or \
+                               next_next_line.startswith('note:'):
+                                break
+                
+                # Clean ANSI escape codes from all lines
+                clean_full_text = []
+                for line_text in full_error_lines:
+                    clean_line = re.sub(r'\x1b\[[0-9;]*m', '', line_text.rstrip())
+                    clean_full_text.append(clean_line)
+                
+                # Join into complete error text
+                complete_error_text = '\n'.join(clean_full_text).strip()
+                
+                # Extract just the assertion details for backward compatibility
+                assertion_details = []
+                for line_text in clean_full_text:
+                    clean_line = line_text.strip()
+                    if clean_line and ('assert' in clean_line or '|' in clean_line or clean_line.startswith('-->')):
+                        assertion_details.append(clean_line)
+                
+                # Clean other fields
+                clean_file_path = re.sub(r'\x1b\[[0-9;]*m', '', file_path) if file_path else None
+                clean_message = re.sub(r'\x1b\[[0-9;]*m', '', line.strip())
+                
+                failure = {
+                    "error_type": error_type,
+                    "file": clean_file_path,
+                    "line": line_number,
+                    "column": column,
+                    "message": clean_message,
+                    "assertion_details": assertion_details[:10],  # Keep backward compatibility
+                    "full_error_text": complete_error_text  # New complete error text
+                }
+                
+                failures.append(failure)
+            
+            i += 1
+        
+        return failures
 
 
     
@@ -557,6 +664,9 @@ class VerusAnalyzer:
             import os
             os.unlink(temp_file_path)
         
+        # Parse detailed verification failures
+        verification_failures = self.verification_parser.parse_verification_failures(output_content)
+        
         # Categorize functions
         verified_functions = set(all_function_names)
         failed_functions = set()
@@ -618,7 +728,8 @@ class VerusAnalyzer:
                 "verified_functions": len(verified_functions),
                 "failed_functions": len(failed_functions),
                 "compilation_errors": len(compilation_errors),
-                "compilation_warnings": len(compilation_warnings)
+                "compilation_warnings": len(compilation_warnings),
+                "verification_errors": len(verification_failures)
             },
             "compilation": {
                 "errors": compilation_errors,
@@ -626,7 +737,8 @@ class VerusAnalyzer:
             },
             "verification": {
                 "verified_functions": sorted(list(verified_functions)),
-                "failed_functions": sorted(list(failed_functions))
+                "failed_functions": sorted(list(failed_functions)),
+                "errors": verification_failures
             },
             "functions_by_file": {
                 str(file_path): [{"name": func_name, "line": line_num} for func_name, line_num in functions]
@@ -696,7 +808,8 @@ def main():
                     "verified_functions": 0,
                     "failed_functions": 0,
                     "compilation_errors": 0,
-                    "compilation_warnings": 0
+                    "compilation_warnings": 0,
+                    "verification_errors": 0
                 },
                 "compilation": {
                     "errors": [],
@@ -704,7 +817,8 @@ def main():
                 },
                 "verification": {
                     "verified_functions": [],
-                    "failed_functions": []
+                    "failed_functions": [],
+                    "errors": []
                 },
                 "all_functions": sorted(list(all_function_names)),
                 "functions_by_file": {

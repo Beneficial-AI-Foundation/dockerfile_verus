@@ -189,3 +189,10 @@ docker run --rm verus-verifier-stable /root/.cargo/bin/verus-x86-linux/verus --v
 - `verify-verus.sh`: Verification script with automatic build and module/function selection
 - `find_verus_functions.py`: Python script for analyzing Verus output and generating JSON reports
 - `README.md`: This documentation
+
+
+### Concrete examples
+
+`docker build -f Dockerfile.verus -t verus-verifier .`
+
+`docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-verifier   /usr/local/bin/verify-verus.sh --work-dir /workspace/curve25519-dalek --verify-only-module backend::serial::u64::field_verus --json-output /workspace/verification_report.json`
