@@ -31,6 +31,9 @@ docker build -f Dockerfile.verus -t verus-verifier-stable .
 
 # Build with latest Verus prerelease
 docker build -f Dockerfile.verus --build-arg VERUS_RELEASE_TYPE=prerelease -t verus-verifier-prerelease .
+
+# Force rebuild without cache to get latest Verus version
+docker build --no-cache -f Dockerfile.verus -t verus-verifier-stable .
 ```
 
 ### Basic Usage

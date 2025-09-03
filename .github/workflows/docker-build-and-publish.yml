@@ -131,6 +131,15 @@ jobs:
             - **Stable**: ${{ steps.verus-versions.outputs.stable }}
             - **Prerelease**: ${{ steps.verus-versions.outputs.prerelease }}
             
+            ### Authentication Required
+            
+            These images are private. You need to authenticate first:
+            
+            ```bash
+            # Login to GitHub Container Registry
+            echo "YOUR_GITHUB_TOKEN" | docker login ghcr.io -u YOUR_USERNAME --password-stdin
+            ```
+            
             ### Available Images
             
             ```bash
@@ -165,6 +174,6 @@ jobs:
             - Helper scripts for flexible verification
             - Architecture support: amd64/x86_64 only
             
-            See the [README](https://github.com/Beneficial-AI-Foundation/dockerfile_verus/blob/master/README.md) for complete usage instructions.
+            See the [README](https://github.com/beneficial-ai-foundation/dockerfile_verus/blob/master/README.md) for complete usage instructions.
           draft: false
           prerelease: false

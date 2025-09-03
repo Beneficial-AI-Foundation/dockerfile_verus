@@ -372,10 +372,26 @@ class VerificationParser:
         """Find the function that contains or is closest above the given line number."""
         # Try to find a matching file path (handle relative paths)
         matching_file = None
+        file_path_normalized = str(Path(file_path))
+        
         for file_key in all_functions_with_lines.keys():
-            if file_path in file_key or file_key in file_path:
+            file_key_normalized = str(Path(file_key))
+            
+            # Exact match
+            if file_path_normalized == file_key_normalized:
                 matching_file = file_key
                 break
+            
+            # Check if one is a suffix of the other (handles relative vs absolute paths)
+            if file_path_normalized.endswith(file_key_normalized) or file_key_normalized.endswith(file_path_normalized):
+                matching_file = file_key
+                break
+            
+            # Check if file_path is contained in file_key or vice versa
+            if file_path_normalized in file_key_normalized or file_key_normalized in file_path_normalized:
+                matching_file = file_key
+                break
+            
             # Also try just the filename
             if Path(file_path).name == Path(file_key).name:
                 matching_file = file_key
@@ -696,7 +712,8 @@ class VerusAnalyzer:
         verified_functions = set(all_function_names)
         failed_functions = set()
         
-        # Find functions that failed verification
+        # Find functions that failed verification - use both methods for completeness
+        # Method 1: Use errors_by_file from parse_verification_output
         for file_path, error_lines in errors_by_file.items():
             for error_line in error_lines:
                 failed_func = self.verification_parser.find_function_at_line(file_path, error_line, all_functions_with_lines)
@@ -704,14 +721,25 @@ class VerusAnalyzer:
                     failed_functions.add(failed_func)
                     verified_functions.discard(failed_func)
         
+        # Method 2: Use verification_failures from parse_verification_failures (more reliable)
+        for failure in verification_failures:
+            if failure.get('file') and failure.get('line'):
+                failed_func = self.verification_parser.find_function_at_line(
+                    failure['file'], failure['line'], all_functions_with_lines
+                )
+                if failed_func:
+                    failed_functions.add(failed_func)
+                    verified_functions.discard(failed_func)
+        
         # Determine overall status
         has_compilation_errors = len(compilation_errors) > 0
-        has_verification_failures = len(failed_functions) > 0
+        has_verification_failures = len(verification_failures) > 0  # Use verification_failures, not failed_functions
+        has_verification_results = self.compilation_parser.has_verification_results(output_content)
         
         # Check exit code as well - non-zero exit code usually means compilation failure
         if exit_code is not None and exit_code != 0:
-            if not has_compilation_errors and not has_verification_failures:
-                # If we don't have detected compilation errors or verification failures 
+            if not has_compilation_errors and not has_verification_failures and not has_verification_results:
+                # If we don't have detected compilation errors, verification failures, or verification results
                 # but exit code is non-zero, create a generic error
                 compilation_errors.append({
                     "message": f"Command failed with exit code {exit_code}",
@@ -722,13 +750,18 @@ class VerusAnalyzer:
                 })
                 has_compilation_errors = True
         
-        if has_compilation_errors:
+        # Priority: verification results > compilation errors
+        # If we have verification results, prioritize them even if there's a non-zero exit code
+        if has_verification_results:
+            if has_verification_failures:
+                status = "verification_failed"
+            else:
+                status = "success"
+        elif has_compilation_errors:
             status = "compilation_failed"
-            # If compilation failed, we can't verify any functions
+            # If compilation failed and no verification results, we can't verify any functions
             verified_functions = set()
             failed_functions = set()
-        elif has_verification_failures:
-            status = "verification_failed"
         else:
             status = "success"
         
