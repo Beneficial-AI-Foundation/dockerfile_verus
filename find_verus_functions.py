@@ -26,6 +26,9 @@ class CompilationErrorParser:
         self.file_location_pattern = re.compile(r'-->\s+([^:]+):(\d+):(\d+)')
         self.process_error_pattern = re.compile(r"process didn't exit successfully: (.+)")
         self.memory_error_pattern = re.compile(r'memory allocation of \d+ bytes failed')
+        self.caused_by_pattern = re.compile(r'Caused by:')
+        self.exit_status_pattern = re.compile(r'\(exit status: (\d+)\)')
+        self.verus_command_exit_pattern = re.compile(r'Verus command completed with exit code: (\d+)')
         # Pattern to detect verification results summary
         self.verification_results_pattern = re.compile(r'verification results::\s*(\d+)\s+verified,\s*(\d+)\s+errors?')
         # Verification-specific error patterns that should NOT be treated as compilation errors
@@ -99,14 +102,33 @@ class CompilationErrorParser:
                     })
                 continue
                 
+            # Check for Verus command exit code messages
+            verus_exit_match = self.verus_command_exit_pattern.search(line)
+            if verus_exit_match:
+                exit_code = int(verus_exit_match.group(1))
+                if current_error:
+                    current_error["full_message"].append(line)
+                    current_error["message"] += f" (exit code: {exit_code})"
+                else:
+                    current_error = {
+                        "message": f"Verus command failed with exit code {exit_code}",
+                        "file": None,
+                        "line": None,
+                        "column": None,
+                        "full_message": [line]
+                    }
+                continue
+            
             # Check for process failure errors
             process_error_match = self.process_error_pattern.search(line)
             if process_error_match:
                 if current_error:
                     current_error["full_message"].append(line)
+                    # Extract more detailed process information
+                    current_error["message"] += f" - {process_error_match.group(1)}"
                 else:
                     current_error = {
-                        "message": "Process execution failed",
+                        "message": f"Process execution failed: {process_error_match.group(1)}",
                         "file": None,
                         "line": None,
                         "column": None,
@@ -170,13 +192,19 @@ class CompilationErrorParser:
                 
             # Add continuation lines to current error/warning
             if current_error and (line.startswith('|') or line.startswith('^') or line.startswith('=') or 
-                                line.startswith('Caused by:') or line.startswith('(signal:')):
+                                line.startswith('Caused by:') or line.startswith('(signal:') or 
+                                line.startswith('  process didn\'t exit successfully:') or 
+                                self.exit_status_pattern.search(line)):
                 current_error["full_message"].append(line)
                 # Update message with additional context
                 if line.startswith('Caused by:'):
-                    current_error["message"] += f" - {line}"
+                    current_error["message"] += f" - {line.strip()}"
                 elif '(signal:' in line:
-                    current_error["message"] += f" - {line}"
+                    current_error["message"] += f" - {line.strip()}"
+                elif self.exit_status_pattern.search(line):
+                    exit_match = self.exit_status_pattern.search(line)
+                    if exit_match:
+                        current_error["message"] += f" (exit status: {exit_match.group(1)})"
             elif current_warning and (line.startswith('|') or line.startswith('^') or line.startswith('=')):
                 current_warning["full_message"].append(line)
             elif line == "":
