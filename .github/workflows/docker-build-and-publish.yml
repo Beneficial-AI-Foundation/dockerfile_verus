@@ -128,6 +128,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
+      packages: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -145,7 +146,17 @@ jobs:
           # Create downloadable packages with pre-built Docker images
           mkdir -p release-assets
           
-          # Export the built Docker images as tar files
+          # Login to pull the images we just built
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
+          # Pull the images that were just built and pushed
+          echo "Pulling stable Docker image..."
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:stable
+          
+          echo "Pulling prerelease Docker image..."
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:prerelease
+          
+          # Export the Docker images as tar files
           echo "Exporting stable Docker image..."
           docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:stable | gzip > release-assets/verus-docker-stable-${{ github.ref_name }}.tar.gz
           
@@ -153,25 +164,27 @@ jobs:
           docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:prerelease | gzip > release-assets/verus-docker-prerelease-${{ github.ref_name }}.tar.gz
           
           # Also export with version tag if it exists
-          if docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }} >/dev/null 2>&1; then
+          if docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }} 2>/dev/null; then
             echo "Exporting version-tagged stable image..."
             docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }} | gzip > release-assets/verus-docker-${{ github.ref_name }}.tar.gz
           fi
           
-          if docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-prerelease >/dev/null 2>&1; then
+          if docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-prerelease 2>/dev/null; then
             echo "Exporting version-tagged prerelease image..."
             docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-prerelease | gzip > release-assets/verus-docker-${{ github.ref_name }}-prerelease.tar.gz
           fi
           
           # Create a source package for users who want to customize
           echo "Creating source package..."
+          
+          # Only include files that exist
+          SOURCE_FILES="Dockerfile.verus verify-verus.sh find_verus_functions.py README.md install.sh"
+          if [ -f "build-revision.sh" ]; then
+            SOURCE_FILES="$SOURCE_FILES build-revision.sh"
+          fi
+          
           tar -czf release-assets/verus-docker-source-${{ github.ref_name }}.tar.gz \
-            Dockerfile.verus \
-            verify-verus.sh \
-            find_verus_functions.py \
-            build-revision.sh \
-            README.md \
-            install.sh \
+            $SOURCE_FILES \
             --transform 's,^,verus-docker-source-${{ github.ref_name }}/,'
           
           # Copy the install script to release assets
