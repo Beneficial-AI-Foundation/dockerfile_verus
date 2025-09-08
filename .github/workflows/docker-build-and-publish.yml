@@ -56,6 +56,9 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+        # Note: Packages are private by default. To make them public, 
+        # you need to manually change the visibility in GitHub Package settings
+        # or use the GitHub API after publishing
 
       - name: Extract metadata
         id: meta
@@ -98,6 +101,27 @@ jobs:
           docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.variant }} \
             /root/.cargo/bin/verus-x86-linux/verus --version
 
+      - name: Make package public
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Make the package public using GitHub API
+          PACKAGE_NAME="dockerfile_verus"
+          ORG_NAME="beneficial-ai-foundation"
+          
+          # Get package version ID for the variant we just published
+          PACKAGE_VERSION=$(echo "${{ steps.meta.outputs.tags }}" | head -n1 | cut -d':' -f2)
+          
+          echo "Making package $PACKAGE_NAME:$PACKAGE_VERSION public..."
+          
+          # Make the entire package public (affects all versions)
+          curl -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/$ORG_NAME/packages/container/$PACKAGE_NAME" \
+            -d '{"visibility":"public"}' || echo "Package may already be public or API call failed"
+
   create-release:
     runs-on: ubuntu-latest
     needs: build-and-push
@@ -116,13 +140,56 @@ jobs:
           echo "stable=$STABLE_VERSION" >> $GITHUB_OUTPUT
           echo "prerelease=$PRERELEASE_VERSION" >> $GITHUB_OUTPUT
 
+      - name: Create release packages
+        run: |
+          # Create downloadable packages with pre-built Docker images
+          mkdir -p release-assets
+          
+          # Export the built Docker images as tar files
+          echo "Exporting stable Docker image..."
+          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:stable | gzip > release-assets/verus-docker-stable-${{ github.ref_name }}.tar.gz
+          
+          echo "Exporting prerelease Docker image..."
+          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:prerelease | gzip > release-assets/verus-docker-prerelease-${{ github.ref_name }}.tar.gz
+          
+          # Also export with version tag if it exists
+          if docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }} >/dev/null 2>&1; then
+            echo "Exporting version-tagged stable image..."
+            docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }} | gzip > release-assets/verus-docker-${{ github.ref_name }}.tar.gz
+          fi
+          
+          if docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-prerelease >/dev/null 2>&1; then
+            echo "Exporting version-tagged prerelease image..."
+            docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-prerelease | gzip > release-assets/verus-docker-${{ github.ref_name }}-prerelease.tar.gz
+          fi
+          
+          # Create a source package for users who want to customize
+          echo "Creating source package..."
+          tar -czf release-assets/verus-docker-source-${{ github.ref_name }}.tar.gz \
+            Dockerfile.verus \
+            verify-verus.sh \
+            find_verus_functions.py \
+            build-revision.sh \
+            README.md \
+            install.sh \
+            --transform 's,^,verus-docker-source-${{ github.ref_name }}/,'
+          
+          # Copy the install script to release assets
+          cp install.sh release-assets/install.sh
+
       - name: Create GitHub Release
-        uses: actions/create-release@v1
+        uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref_name }}
-          release_name: Verus Verifier Docker Images ${{ github.ref_name }}
+          name: Verus Verifier Docker Images ${{ github.ref_name }}
+          files: |
+            release-assets/verus-docker-stable-${{ github.ref_name }}.tar.gz
+            release-assets/verus-docker-prerelease-${{ github.ref_name }}.tar.gz
+            release-assets/verus-docker-${{ github.ref_name }}.tar.gz
+            release-assets/verus-docker-${{ github.ref_name }}-prerelease.tar.gz
+            release-assets/verus-docker-source-${{ github.ref_name }}.tar.gz
+            release-assets/install.sh
           body: |
             ## Verus Verifier Docker Images ${{ github.ref_name }}
             
@@ -131,16 +198,41 @@ jobs:
             - **Stable**: ${{ steps.verus-versions.outputs.stable }}
             - **Prerelease**: ${{ steps.verus-versions.outputs.prerelease }}
             
-            ### Authentication Required
+            ### 📦 Download Pre-built Images
             
-            These images are private. You need to authenticate first:
+            **Ready-to-use Docker images** (no building required):
             
+            - **`verus-docker-stable-${{ github.ref_name }}.tar.gz`** - Stable Verus release (recommended)
+            - **`verus-docker-prerelease-${{ github.ref_name }}.tar.gz`** - Latest Verus prerelease
+            - **`verus-docker-${{ github.ref_name }}.tar.gz`** - Stable release with version tag
+            - **`verus-docker-${{ github.ref_name }}-prerelease.tar.gz`** - Prerelease with version tag
+            
+            **Additional files**:
+            - **`install.sh`** - Automated installation script
+            - **`verus-docker-source-${{ github.ref_name }}.tar.gz`** - Source code for customization
+            
+            ### 🚀 Quick Start (Pre-built Images)
+            
+            **Option 1: Use the installer script**
             ```bash
-            # Login to GitHub Container Registry
-            echo "YOUR_GITHUB_TOKEN" | docker login ghcr.io -u YOUR_USERNAME --password-stdin
+            # Download install.sh and a Docker image file, then:
+            chmod +x install.sh
+            ./install.sh
             ```
             
-            ### Available Images
+            **Option 2: Manual installation**
+            ```bash
+            # Download and load the image
+            docker load < verus-docker-stable-${{ github.ref_name }}.tar.gz
+            
+            # Verify a project
+            docker run --rm -v /path/to/project:/workspace ghcr.io/beneficial-ai-foundation/dockerfile_verus:stable \
+              /usr/local/bin/verify-verus.sh --work-dir /workspace
+            ```
+            
+            ### � Docker Registry (Alternative)
+            
+            You can also pull directly from the registry instead of downloading:
             
             ```bash
             # Latest stable release
@@ -153,7 +245,7 @@ jobs:
             docker pull ghcr.io/beneficial-ai-foundation/dockerfile_verus:${{ github.ref_name }}-prerelease
             ```
             
-            ### Usage
+            ### 📋 Usage Examples
             
             ```bash
             # Verify entire project
@@ -164,16 +256,21 @@ jobs:
             docker run --rm -v /path/to/project:/workspace ghcr.io/beneficial-ai-foundation/dockerfile_verus:latest \
               /usr/local/bin/verify-verus.sh --work-dir /workspace \
               --verify-only-module module::path::name
+            
+            # Generate JSON report
+            docker run --rm -v /path/to/project:/workspace ghcr.io/beneficial-ai-foundation/dockerfile_verus:latest \
+              /usr/local/bin/verify-verus.sh --work-dir /workspace \
+              --json-output /workspace/verification_report.json
             ```
             
-            ### What's Included
+            ### 🔧 What's Included
             
-            - Ubuntu 22.04 base image
-            - Rust 1.88.0 toolchain  
-            - Verus verification tool (stable and prerelease variants)
-            - Helper scripts for flexible verification
-            - Architecture support: amd64/x86_64 only
+            - **Base Image**: Ubuntu 22.04
+            - **Rust Toolchain**: 1.88.0  
+            - **Verus**: ${{ steps.verus-versions.outputs.stable }} (stable) / ${{ steps.verus-versions.outputs.prerelease }} (prerelease)
+            - **Helper Scripts**: Flexible verification with module/function selection
+            - **Architecture**: amd64/x86_64 only
             
-            See the [README](https://github.com/beneficial-ai-foundation/dockerfile_verus/blob/master/README.md) for complete usage instructions.
+            📖 See the [README](https://github.com/beneficial-ai-foundation/dockerfile_verus/blob/master/README.md) for complete usage instructions and examples.
           draft: false
           prerelease: false

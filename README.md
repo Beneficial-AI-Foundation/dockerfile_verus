@@ -6,6 +6,38 @@ The container automatically handles module resolution issues by building the pro
 
 ## Quick Start
 
+### Download Pre-built Images
+
+Ready-to-use Docker images are available for download from the [GitHub Releases page](https://github.com/beneficial-ai-foundation/dockerfile_verus/releases):
+
+- **`verus-docker-stable-vX.X.X.tar.gz`** - Stable Verus release (recommended)
+- **`verus-docker-prerelease-vX.X.X.tar.gz`** - Latest Verus prerelease
+- **`install.sh`** - Automated installation script (also available in this repository)
+
+**Quick installation:**
+
+```bash
+# Option 1: Download install.sh from releases, then:
+chmod +x install.sh
+./install.sh
+
+# Option 2: Use install.sh from this repository:
+wget https://raw.githubusercontent.com/beneficial-ai-foundation/dockerfile_verus/master/install.sh
+chmod +x install.sh
+./install.sh
+```
+
+**Manual installation:**
+
+```bash
+# Download and load the image
+docker load < verus-docker-stable-v1.0.0.tar.gz
+
+# Verify a project  
+docker run --rm -v /path/to/project:/workspace ghcr.io/beneficial-ai-foundation/dockerfile_verus:stable \
+  /usr/local/bin/verify-verus.sh --work-dir /workspace
+```
+
 ### Using Pre-built Images (Recommended)
 
 Pre-built images are available from GitHub Container Registry and are automatically updated with the latest Verus releases:
@@ -32,9 +64,24 @@ docker build -f Dockerfile.verus -t verus-verifier-stable .
 # Build with latest Verus prerelease
 docker build -f Dockerfile.verus --build-arg VERUS_RELEASE_TYPE=prerelease -t verus-verifier-prerelease .
 
+# Build with specific Verus revision (useful for reproducible builds)
+docker build -f Dockerfile.verus --build-arg VERUS_RELEASE_TYPE=33c6cec7bd19818e51d2b61f629d5d2484778bed -t verus-verifier-revision .
+
+# Use the helper script for building with revisions
+./build-revision.sh 33c6cec7bd19818e51d2b61f629d5d2484778bed verus-revision
+
 # Force rebuild without cache to get latest Verus version
 docker build --no-cache -f Dockerfile.verus -t verus-verifier-stable .
 ```
+
+#### Build Arguments
+
+- `VERUS_RELEASE_TYPE`: Controls which version of Verus to install
+  - `stable` (default): Latest stable release
+  - `prerelease`: Latest prerelease
+  - `<commit_hash>`: Specific git revision (40-character hex string)
+    - Example: `33c6cec7bd19818e51d2b61f629d5d2484778bed`
+    - The build will automatically find the corresponding release for the revision
 
 ### Basic Usage
 
@@ -62,6 +109,10 @@ docker run --rm -v /path/to/project:/workspace ghcr.io/beneficial-ai-foundation/
 # Use prerelease version for latest features
 docker run --rm -v /path/to/project:/workspace ghcr.io/beneficial-ai-foundation/dockerfile_verus:prerelease \
   /usr/local/bin/verify-verus.sh --work-dir /workspace
+
+# Use specific revision (for reproducible verification)
+docker run --rm -v /path/to/project:/workspace verus-verifier-revision \
+  /usr/local/bin/verify-verus.sh --work-dir /workspace
 ```
 
 ### Example: curve25519-dalek
@@ -87,6 +138,30 @@ docker run --rm -v /home/lacra/git_repos/baif/curve25519-dalek:/workspace verus-
   /usr/local/bin/verify-verus.sh --work-dir /workspace/curve25519-dalek \
   --json-output /workspace/curve25519_verification.json
 ```
+
+### Using Specific Revisions for Reproducible Builds
+
+Some projects require specific Verus versions. For example, if your `Cargo.toml` specifies:
+
+```toml
+vstd = { git = "https://github.com/verus-lang/verus", rev = "33c6cec7bd19818e51d2b61f629d5d2484778bed"}
+```
+
+You can build a Docker image with that exact Verus version:
+
+```bash
+# Build with specific revision matching your Cargo.toml
+docker build -f Dockerfile.verus --build-arg VERUS_RELEASE_TYPE=33c6cec7bd19818e51d2b61f629d5d2484778bed -t verus-curve25519 .
+
+# Or use the helper script
+./build-revision.sh 33c6cec7bd19818e51d2b61f629d5d2484778bed verus-curve25519
+
+# Then verify with the matching version
+docker run --rm -v /path/to/project:/workspace verus-curve25519 \
+  /usr/local/bin/verify-verus.sh --work-dir /workspace
+```
+
+The build process automatically finds the release that corresponds to the revision (e.g., `release/0.2025.08.01.33c6cec`) and downloads the pre-built binary instead of building from source.
 
 ## Parameters
 
@@ -153,7 +228,10 @@ When using `--json-output`, the script generates a detailed JSON report containi
 
 ## Automated Builds & Releases
 
-Images are automatically built and published to GitHub Container Registry:
+Images and downloadable packages are automatically built and published:
+
+- **Docker Images**: Published to GitHub Container Registry
+- **Pre-built Image Files**: Available on the [GitHub Releases page](https://github.com/beneficial-ai-foundation/dockerfile_verus/releases)
 
 - **Triggers**: 
   - New commits to master branch
@@ -168,9 +246,29 @@ Images are automatically built and published to GitHub Container Registry:
   - `v1.0.0` - Specific tagged versions
   - `v1.0.0-prerelease` - Prerelease variants of tagged versions
 
+- **Release Downloads**:
+  - `verus-docker-stable-vX.X.X.tar.gz` - Pre-built stable image
+  - `verus-docker-prerelease-vX.X.X.tar.gz` - Pre-built prerelease image
+  - `verus-docker-source-vX.X.X.tar.gz` - Source code for customization
+  - `install.sh` - Automated installation script
+
+**Note**: The containers are automatically made public after publishing, so no authentication is required for pulling.
+
 The containers are automatically updated weekly to include the latest Verus releases.
 
 ## Troubleshooting
+
+### Docker Permission Issues
+
+If you get permission denied errors when running Docker commands:
+
+```bash
+# Option 1: Add your user to the docker group (requires logout/login)
+sudo usermod -aG docker $USER
+
+# Option 2: Run with sudo (temporary solution)
+sudo docker pull ghcr.io/beneficial-ai-foundation/dockerfile_verus:latest
+```
 
 ### Module Not Found Error
 
@@ -191,6 +289,8 @@ docker run --rm verus-verifier-stable /root/.cargo/bin/verus-x86-linux/verus --v
 - `Dockerfile.verus`: The Docker image definition
 - `verify-verus.sh`: Verification script with automatic build and module/function selection
 - `find_verus_functions.py`: Python script for analyzing Verus output and generating JSON reports
+- `build-revision.sh`: Helper script for building Docker images with specific Verus revisions
+- `install.sh`: Automated installer for pre-built Docker images
 - `README.md`: This documentation
 
 
