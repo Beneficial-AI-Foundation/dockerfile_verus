@@ -1,8 +1,9 @@
 # Dockerfile to run Verus verification for a verus project
 FROM ubuntu:22.04
 
-# Build argument to choose between prerelease and stable
+# Build argument to choose between prerelease, stable, or specific revision
 # Set to "prerelease" for latest prerelease, "stable" for latest stable release (default)
+# Set to a specific git commit hash (e.g., "33c6cec7bd19818e51d2b61f629d5d2484778bed") for a specific revision
 ARG VERUS_RELEASE_TYPE=stable
 
 # Set environment variables
@@ -15,9 +16,6 @@ RUN apt-get update && apt-get install -y \
     curl \
     wget \
     unzip \
-    build-essential \
-    pkg-config \
-    libssl-dev \
     jq \
     python3 \
     && rm -rf /var/lib/apt/lists/*
@@ -29,16 +27,30 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Verify Rust installation
 RUN rustc --version && cargo --version
 
-# Install latest Verus release (prerelease or stable based on build arg)
+# Install Verus (prerelease, stable release, or specific revision)
 RUN RELEASE_JSON=$(curl -s https://api.github.com/repos/verus-lang/verus/releases) && \
-    if [ "$VERUS_RELEASE_TYPE" = "stable" ]; then \
+    if echo "$VERUS_RELEASE_TYPE" | grep -qE '^[a-f0-9]{40}$'; then \
+        # Find release that matches the given revision \
+        echo "Looking for release matching revision: $VERUS_RELEASE_TYPE"; \
+        RELEASE=$(echo "$RELEASE_JSON" | jq -r --arg rev "$VERUS_RELEASE_TYPE" '.[] | select(.target_commitish == $rev) | .tag_name' | head -n1); \
+        if [ -z "$RELEASE" ]; then \
+            echo "No release found for revision $VERUS_RELEASE_TYPE, trying to find by commit SHA in release names..."; \
+            SHORT_REV=$(echo "$VERUS_RELEASE_TYPE" | cut -c1-7); \
+            RELEASE=$(echo "$RELEASE_JSON" | jq -r --arg short_rev "$SHORT_REV" '.[] | select(.tag_name | contains($short_rev)) | .tag_name' | head -n1); \
+        fi; \
+        if [ -z "$RELEASE" ]; then \
+            echo "ERROR: No release found for revision $VERUS_RELEASE_TYPE"; \
+            exit 1; \
+        fi; \
+        echo "Found release for revision: $RELEASE"; \
+    elif [ "$VERUS_RELEASE_TYPE" = "stable" ]; then \
         RELEASE=$(echo "$RELEASE_JSON" | jq -r '.[] | select(.prerelease == false) | .tag_name' | head -n1); \
         echo "Installing stable release: $RELEASE"; \
     else \
         RELEASE=$(echo "$RELEASE_JSON" | jq -r '.[0].tag_name'); \
         echo "Installing prerelease: $RELEASE"; \
     fi && \
-    RELEASE_DATA=$(echo "$RELEASE_JSON" | jq -r ".[] | select(.tag_name == \"$RELEASE\")") && \
+    RELEASE_DATA=$(echo "$RELEASE_JSON" | jq -r --arg release "$RELEASE" '.[] | select(.tag_name == $release)') && \
     ASSET_NAME=$(echo "$RELEASE_DATA" | jq -r '.assets[] | select(.name | contains("x86-linux.zip")) | .name') && \
     echo "Asset name: $ASSET_NAME" && \
     DOWNLOAD_URL=$(echo "$RELEASE_DATA" | jq -r '.assets[] | select(.name | contains("x86-linux.zip")) | .browser_download_url') && \
@@ -66,4 +78,7 @@ RUN /root/.cargo/bin/verus-x86-linux/verus --version
 
 # Default command to run Verus verification
 # Can be overridden with docker run arguments
+# 
+# To build with a specific revision, use:
+# docker build --build-arg VERUS_RELEASE_TYPE=33c6cec7bd19818e51d2b61f629d5d2484778bed -t verus-revision .
 CMD ["/usr/local/bin/verify-verus.sh"]
