@@ -11,13 +11,17 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV CARGO_TERM_COLOR=always
 ENV RUSTFLAGS='-D warnings'
 
-# Install system dependencies
+# Install system dependencies including build tools
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
     unzip \
     jq \
     python3 \
+    build-essential \
+    gcc \
+    libc6-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust toolchain 1.88.0
