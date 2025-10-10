@@ -9,7 +9,6 @@ ARG VERUS_RELEASE_TYPE=stable
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CARGO_TERM_COLOR=always
-ENV RUSTFLAGS='-D warnings'
 
 # Install system dependencies including build tools
 RUN apt-get update && apt-get install -y \
@@ -22,6 +21,12 @@ RUN apt-get update && apt-get install -y \
     gcc \
     libc6-dev \
     pkg-config \
+    protobuf-compiler \
+    cmake \
+    clang \
+    libclang-dev \
+    libssl-dev \
+    golang \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust toolchain 1.88.0
