@@ -82,6 +82,9 @@ COPY find_verus_functions.py /usr/local/bin/find_verus_functions.py
 RUN chmod +x /usr/local/bin/verify-verus.sh
 RUN chmod +x /usr/local/bin/find_verus_functions.py
 
+# Install the Rust toolchain required by Verus
+RUN rustup install 1.91.0-x86_64-unknown-linux-gnu
+
 # Print Verus version for verification
 RUN /root/.cargo/bin/verus-x86-linux/verus --version
 
