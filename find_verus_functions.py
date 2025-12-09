@@ -659,6 +659,96 @@ class RustFunctionFinder:
         return sorted(list(verified_functions)), sorted(list(failed_functions))
 
 
+class VerusRunner:
+    """Runs cargo verus verification and captures output."""
+    
+    def __init__(self):
+        pass
+    
+    def setup_environment(self):
+        """Set up environment variables for Verus verification."""
+        import os
+        
+        # Skip building BoringSSL from source - not needed for Verus verification
+        boring_stub = '/tmp/boring-stub'
+        Path(boring_stub).mkdir(parents=True, exist_ok=True)
+        Path(f'{boring_stub}/lib').mkdir(exist_ok=True)
+        Path(f'{boring_stub}/include').mkdir(exist_ok=True)
+        
+        os.environ['BORING_BSSL_PATH'] = boring_stub
+        os.environ['BORING_BSSL_ASSUME_PATCHED'] = '1'
+        os.environ['DOCS_RS'] = '1'
+    
+    def run_verification(self, work_dir, package=None, module=None, function=None, extra_args=None):
+        """
+        Run cargo verus verification and return output and exit code.
+        
+        Args:
+            work_dir: Working directory for verification
+            package: Package to verify (for workspaces)
+            module: Module to verify
+            function: Function to verify
+            extra_args: Additional arguments for cargo verus
+            
+        Returns:
+            tuple: (output_string, exit_code)
+        """
+        import subprocess
+        import os
+        
+        # Save current directory
+        original_dir = os.getcwd()
+        
+        try:
+            # Change to work directory
+            os.chdir(work_dir)
+            
+            # Set up environment
+            self.setup_environment()
+            
+            # Build command
+            cmd = ['cargo', 'verus', 'verify']
+            
+            # Add package selection if specified
+            if package:
+                cmd.extend(['-p', package])
+            
+            # Build verus-specific arguments
+            verus_args = []
+            if module:
+                verus_args.extend(['--verify-only-module', module])
+            if function:
+                verus_args.extend(['--verify-function', function])
+            
+            # Add verus arguments
+            if verus_args:
+                cmd.append('--')
+                cmd.extend(verus_args)
+            
+            # Add any extra arguments
+            if extra_args:
+                cmd.extend(extra_args)
+            
+            print(f"Running: {' '.join(cmd)}")
+            print(f"Working directory: {os.getcwd()}")
+            
+            # Run the command and capture output
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='utf-8',
+                errors='replace'
+            )
+            
+            return result.stdout, result.returncode
+            
+        finally:
+            # Restore original directory
+            os.chdir(original_dir)
+
+
 class VerusAnalyzer:
     def __init__(self, include_verus_constructs=False):
         self.function_finder = RustFunctionFinder(include_verus_constructs=include_verus_constructs)
@@ -837,26 +927,88 @@ def main():
     import sys
     import argparse
     
-    parser = argparse.ArgumentParser(description='Find and analyze Verus functions')
+    parser = argparse.ArgumentParser(
+        description='Run Verus verification and analyze results',
+        epilog='''
+Examples:
+  # Run verification and generate JSON report
+  %(prog)s /path/to/project --run-verification --json-output report.json
+  
+  # Run verification for specific module
+  %(prog)s /path/to/project --run-verification --verify-only-module my::module --json-output report.json
+  
+  # Analyze existing verification output
+  %(prog)s /path/to/project --output-file verus_output.txt --json-output report.json
+        ''',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
     parser.add_argument('path', help='Path to search (file or directory)')
-    parser.add_argument('--output-file', help='Verification output file to analyze')
+    
+    # Verification runner options
+    parser.add_argument('--run-verification', action='store_true',
+                       help='Run cargo verus verification before analysis')
+    parser.add_argument('--package', '-p', help='Package to verify (for workspace projects)')
+    parser.add_argument('--verify-only-module', help='Module to verify (e.g., backend::serial::u64::field_verus)')
+    parser.add_argument('--verify-function', help='Function to verify')
+    
+    # Analysis options
+    parser.add_argument('--output-file', help='Verification output file to analyze (alternative to --run-verification)')
     parser.add_argument('--output-content', help='Verification output content as string')
+    parser.add_argument('--exit-code', type=int, help='Exit code from the verification command')
+    
+    # Output options
     parser.add_argument('--json-output', help='Output results as JSON to specified file')
     parser.add_argument('--format', choices=['text', 'json'], default='text', 
                        help='Output format (default: text)')
-    parser.add_argument('--exit-code', type=int, help='Exit code from the verification command')
     parser.add_argument('--exclude-verus-constructs', action='store_true',
                        help='Exclude Verus constructs (spec, proof, exec) and only include regular functions')
-    parser.add_argument('--verify-only-module', help='Module to filter results by (e.g., backend::serial::u64::field_verus)')
-    parser.add_argument('--verify-function', help='Function to filter results by')
     
     args = parser.parse_args()
+    
+    # Handle --run-verification flag
+    verification_output = None
+    verification_exit_code = None
+    
+    if args.run_verification:
+        print("=" * 60)
+        print("Running Verus verification...")
+        print("=" * 60)
+        
+        runner = VerusRunner()
+        verification_output, verification_exit_code = runner.run_verification(
+            work_dir=args.path,
+            package=args.package,
+            module=args.verify_only_module,
+            function=args.verify_function
+        )
+        
+        print("\n" + "=" * 60)
+        print(f"Verification completed with exit code: {verification_exit_code}")
+        print("=" * 60 + "\n")
+        
+        # Check if verification succeeded
+        if 'verification results::' in verification_output:
+            if ', 0 errors' in verification_output:
+                print("✓ Verification succeeded!")
+            else:
+                print("✗ Verification failed with errors")
+        elif verification_exit_code != 0:
+            print("✗ Compilation or verification failed")
     
     if args.format == 'json' or args.json_output:
         # JSON output mode
         analyzer = VerusAnalyzer(include_verus_constructs=not args.exclude_verus_constructs)
         
-        if args.output_content:
+        if verification_output is not None:
+            # Use output from --run-verification
+            result = analyzer.analyze_output(
+                args.path, verification_output, 
+                exit_code=verification_exit_code,
+                module_filter=args.verify_only_module, 
+                function_filter=args.verify_function
+            )
+        elif args.output_content:
             # Analyze from content string
             result = analyzer.analyze_output(args.path, args.output_content, exit_code=args.exit_code, 
                                            module_filter=args.verify_only_module, function_filter=args.verify_function)
@@ -924,7 +1076,30 @@ def main():
         # Original text output behavior
         finder = RustFunctionFinder(include_verus_constructs=not args.exclude_verus_constructs)
         
-        if args.output_file:
+        if verification_output is not None:
+            # Use output from --run-verification for text mode
+            # Create temporary file with verification output
+            import tempfile
+            import os
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as temp_file:
+                temp_file.write(verification_output)
+                temp_file_path = temp_file.name
+            
+            try:
+                verified_functions, failed_functions = finder.categorize_functions_by_verification(args.path, temp_file_path)
+                
+                print("=== VERIFIED FUNCTIONS ===")
+                for func_name in verified_functions:
+                    print(func_name)
+                
+                print("\n=== FAILED VERIFICATION ===")
+                for func_name in failed_functions:
+                    print(func_name)
+                    
+                print(f"\nSummary: {len(verified_functions)} verified, {len(failed_functions)} failed")
+            finally:
+                os.unlink(temp_file_path)
+        elif args.output_file:
             # Categorize functions based on verification results
             verified_functions, failed_functions = finder.categorize_functions_by_verification(args.path, args.output_file)
             
